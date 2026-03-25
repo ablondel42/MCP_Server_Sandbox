@@ -1,25 +1,33 @@
 """CLI main entry point."""
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from repo_context.config import get_config
-from repo_context.storage import get_connection, close_connection, initialize_database
+from repo_context.storage import (
+    get_connection,
+    close_connection,
+    initialize_database,
+    upsert_repo,
+    upsert_files,
+)
+from repo_context.parsing.scanner import scan_repository
 
 
 def cmd_init_db(args: argparse.Namespace) -> int:
     """Initialize the database.
-    
+
     Args:
         args: Parsed command line arguments.
-        
+
     Returns:
         Exit code (0 for success, 1 for failure).
     """
     config = get_config()
     db_path = args.db_path if args.db_path else config.db_path
-    
+
     try:
         conn = get_connection(db_path)
         initialize_database(conn)
@@ -33,26 +41,26 @@ def cmd_init_db(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Run health checks.
-    
+
     Args:
         args: Parsed command line arguments.
-        
+
     Returns:
         Exit code (0 for success, 1 for failure).
     """
     config = get_config()
     db_path = args.db_path if args.db_path else config.db_path
-    
+
     errors = []
-    
+
     # Check config
     print(f"Config: app_name={config.app_name}, debug={config.debug}")
-    
+
     # Check database connection and schema
     try:
         conn = get_connection(db_path)
         cursor = conn.cursor()
-        
+
         # Check tables exist
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
@@ -64,7 +72,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             errors.append(f"Missing tables: {missing_tables}")
         else:
             print(f"Tables: OK ({len(tables)} tables)")
-        
+
         # Check indexes exist
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='index' ORDER BY name"
@@ -90,23 +98,77 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             errors.append(f"Missing indexes: {missing_indexes}")
         else:
             print(f"Indexes: OK ({len(indexes)} indexes)")
-        
+
         close_connection(conn)
     except Exception as exc:
         errors.append(f"Database error: {exc}")
-    
+
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    
+
     print("Health check: OK")
     return 0
 
 
+def cmd_scan_repo(args: argparse.Namespace) -> int:
+    """Scan a repository and persist file records.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    repo_path = args.repo_path
+
+    try:
+        # Run scanner
+        repo, file_records = scan_repository(repo_path, config)
+
+        # Persist to database (initialize if needed)
+        conn = get_connection(db_path)
+        try:
+            initialize_database(conn)
+            upsert_repo(conn, repo)
+            upsert_files(conn, file_records)
+            conn.commit()
+        finally:
+            close_connection(conn)
+
+        # Print summary
+        if args.json:
+            summary = {
+                "repo_id": repo.id,
+                "repo_name": repo.name,
+                "file_count": len(file_records),
+                "language": repo.default_language,
+            }
+            print(json.dumps(summary, indent=2))
+        else:
+            print(f"Repository scanned successfully")
+            print(f"Repo ID: {repo.id}")
+            print(f"Files found: {len(file_records)}")
+            print(f"Language: {repo.default_language}")
+
+        return 0
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except NotADirectoryError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Error scanning repository: {exc}", file=sys.stderr)
+        return 1
+
+
 def main() -> int:
     """Main entry point.
-    
+
     Returns:
         Exit code.
     """
@@ -115,7 +177,7 @@ def main() -> int:
         description="Repository intelligence for safer AI-assisted code planning",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    
+
     # init-db command
     init_parser = subparsers.add_parser("init-db", help="Initialize database")
     init_parser.add_argument(
@@ -124,7 +186,7 @@ def main() -> int:
         help="Path to database file (default: repo_context.db)",
     )
     init_parser.set_defaults(func=cmd_init_db)
-    
+
     # doctor command
     doctor_parser = subparsers.add_parser("doctor", help="Health check")
     doctor_parser.add_argument(
@@ -133,7 +195,26 @@ def main() -> int:
         help="Path to database file (default: repo_context.db)",
     )
     doctor_parser.set_defaults(func=cmd_doctor)
-    
+
+    # scan-repo command
+    scan_parser = subparsers.add_parser("scan-repo", help="Scan a repository")
+    scan_parser.add_argument(
+        "repo_path",
+        type=Path,
+        help="Path to the repository to scan",
+    )
+    scan_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    scan_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output summary as JSON",
+    )
+    scan_parser.set_defaults(func=cmd_scan_repo)
+
     args = parser.parse_args()
     return args.func(args)
 

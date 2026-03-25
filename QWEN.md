@@ -6,6 +6,8 @@
 
 **Core value proposition:** Safer AI-assisted planning through deterministic pre-change checking and human approval gates before implementation.
 
+**Current Status:** Phase 2 (Repository Scanner) complete. Phase 1 (Bootstrap) and Phase 2 (Repository Scanner) implemented.
+
 ---
 
 ## Architecture
@@ -14,13 +16,13 @@ The system follows a layered architecture:
 
 ```
 Local repo
-  -> Repository Scanner (file inventory)
-  -> AST Extraction (structural graph)
-  -> SQLite Graph Storage
-  -> Context Builder (symbol-centered views)
-  -> LSP Reference Enrichment
-  -> Risk Engine (deterministic analysis)
-  -> MCP Tools
+  -> Repository Scanner (file inventory) [DONE]
+  -> AST Extraction (structural graph) [TODO]
+  -> SQLite Graph Storage [PARTIAL]
+  -> Context Builder (symbol-centered views) [TODO]
+  -> LSP Reference Enrichment [TODO]
+  -> Risk Engine (deterministic analysis) [TODO]
+  -> MCP Tools [TODO]
   -> Agent
   -> Human approval
   -> Implementation
@@ -28,30 +30,30 @@ Local repo
 
 ### Main Components
 
-| Component | Purpose | Phase |
-|-----------|---------|-------|
-| **Repository Scanner** | Discovers supported files, ignores junk directories, persists file inventory | 02 |
-| **AST Extraction** | Parses Python files, extracts modules/classes/callables, builds structural edges | 03 |
-| **Graph Storage** | SQLite persistence for nodes and edges, upsert/cleanup/query operations | 04 |
-| **Context Builder** | Assembles symbol-centered views with parent/children/edges/freshness/confidence | 05 |
-| **LSP References** | Enriches graph with `references` edges via language server queries | 06 |
-| **Risk Engine** | Deterministic risk analysis: facts, issues, scores, decisions | 07 |
-| **MCP Server** | Exposes tools: `resolve_symbol`, `get_symbol_context`, `refresh_references`, `analyze_risk` | 08 |
-| **Watch Mode** | Incremental graph updates on filesystem changes | 09 |
-| **Workflow Layer** | Enforces plan->check->approve->implement sequence | 10 |
+| Component | Purpose | Phase | Status |
+|-----------|---------|-------|--------|
+| **Repository Scanner** | Discovers Python files, ignores junk directories, persists file inventory | 02 | ✅ Complete |
+| **AST Extraction** | Parses Python files, extracts modules/classes/callables, builds structural edges | 03 | ⏳ Pending |
+| **Graph Storage** | SQLite persistence for nodes and edges, upsert/cleanup/query operations | 04 | ⏳ Pending |
+| **Context Builder** | Assembles symbol-centered views with parent/children/edges/freshness/confidence | 05 | ⏳ Pending |
+| **LSP References** | Enriches graph with `references` edges via language server queries | 06 | ⏳ Pending |
+| **Risk Engine** | Deterministic risk analysis: facts, issues, scores, decisions | 07 | ⏳ Pending |
+| **MCP Server** | Exposes tools: `resolve_symbol`, `get_symbol_context`, `refresh_references`, `analyze_risk` | 08 | ⏳ Pending |
+| **Watch Mode** | Incremental graph updates on filesystem changes | 09 | ⏳ Pending |
+| **Workflow Layer** | Enforces plan->check->approve->implement sequence | 10 | ⏳ Pending |
 
 ---
 
 ## Tech Stack
 
-- **Language:** Python 3.14+
+- **Language:** Python 3.11+
 - **Database:** SQLite (local, zero-setup)
 - **Package Management:** `pyproject.toml`
 - **Models:** Dataclasses for canonical schema
-- **AST:** Python `ast` module
-- **LSP:** Minimal client (e.g., Pyright-based server)
-- **Filesystem Watching:** `watchdog` library
-- **MCP:** Model Context Protocol server
+- **AST:** Python `ast` module (Phase 3+)
+- **LSP:** Minimal client (Phase 6+)
+- **Filesystem Watching:** `watchdog` library (Phase 9+)
+- **MCP:** Model Context Protocol server (Phase 8+)
 
 ---
 
@@ -69,79 +71,34 @@ MCP_Server_Sandbox/
       config.py               # App config (db_path, ignored_dirs, extensions)
       models/
         __init__.py
-        common.py             # Position, Range
+        common.py             # Position, Range, to_json, from_json
         repo.py               # RepoRecord
         file.py               # FileRecord
         node.py               # SymbolNode
         edge.py               # Edge
         context.py            # SymbolContext
-        assessment.py         # Risk types
+        assessment.py         # PlanAssessment
       storage/
         __init__.py
-        db.py                 # SQLite initialization
-        migrations.py         # Schema setup
-        nodes.py              # Node persistence
-        edges.py              # Edge persistence
-        graph.py              # File-level graph replacement
+        db.py                 # SQLite connection helpers
+        migrations.py         # Schema setup (5 tables, 13 indexes)
+        repos.py              # RepoRecord persistence
+        files.py              # FileRecord persistence
       parsing/
         __init__.py
         scanner.py            # Repository scanning
         pathing.py            # Path normalization, module-path derivation
-        hashing.py            # Content hashing
-        ast_loader.py         # AST parsing
-        naming.py             # Qualified names, IDs
-        module_extractor.py   # Module node extraction
-        class_extractor.py    # Class node extraction
-        callable_extractor.py # Function/method extraction
-        import_extractor.py   # Import edges
-        inheritance_extractor.py
-        ranges.py             # AST location normalization
-        docstrings.py         # Doc summary extraction
-        pipeline.py           # AST extraction orchestration
-      graph/
-        __init__.py
-        queries.py            # Graph lookup helpers
-        context.py            # SymbolContext assembly
-        summaries.py          # Structural summaries
-        freshness.py          # Freshness metadata
-        confidence.py         # Confidence rollups
-        references.py         # Reference stats/queries
-        risk_engine.py        # Risk orchestration
-        risk_facts.py         # Fact extraction
-        risk_rules.py         # Issue detection
-        risk_scoring.py       # Scoring/decision
-        risk_targets.py       # Target normalization
-        risk_types.py         # Risk contracts
-      lsp/
-        __init__.py
-        client.py             # Minimal LSP client
-        protocol.py           # LSP request/response helpers
-        references.py         # Reference enrichment orchestration
-        mapper.py             # Location-to-symbol mapping
-        resolver.py           # Declaration position resolution
-      mcp/
-        __init__.py
-        server.py             # MCP server setup
-        tools.py              # Tool handlers
-        schemas.py            # Input/output contracts
-        errors.py             # Structured errors
-        adapters.py           # Internal->tool payload mapping
-      indexing/
-        __init__.py
-        watch.py              # Filesystem watcher
-        events.py             # Event normalization
-        incremental.py        # Changed-file reindex
-        invalidation.py       # Reference invalidation
-        scheduler.py          # Debounce/batching
+        hashing.py            # Content hashing (SHA-256)
       cli/
         __init__.py
         main.py               # CLI entry point
   tests/
     __init__.py
-    test_smoke.py
-    test_db_init.py
-    test_models.py
-    # ... phase-specific tests
+    test_smoke.py             # Import and config tests
+    test_db_init.py           # Database initialization tests
+    test_models.py            # Model instantiation and JSON tests
+    test_cli.py               # CLI command tests
+    test_scanner.py           # Scanner tests (16 tests)
 ```
 
 ---
@@ -151,7 +108,7 @@ MCP_Server_Sandbox/
 ### Setup
 
 ```bash
-# Create virtual environment
+# Create virtual environment (if not exists)
 python -m venv .venv
 source .venv/bin/activate  # macOS/Linux
 
@@ -165,36 +122,32 @@ pip install -e .
 # Initialize database
 repo-context init-db
 
+# Initialize database at custom path
+repo-context init-db --db-path /path/to/custom.db
+
+# Health check
+repo-context doctor
+
+# Health check at custom path
+repo-context doctor --db-path /path/to/custom.db
+
 # Scan a repository
 repo-context scan-repo /path/to/repo
 
-# View graph stats
-repo-context graph-stats repo:project
+# Scan with custom database path
+repo-context scan-repo /path/to/repo --db-path /path/to/db.db
 
-# Inspect symbol context
-repo-context show-context <node-id>
+# Scan with JSON output
+repo-context scan-repo /path/to/repo --json
 
-# Analyze symbol risk
-repo-context analyze-symbol-risk <symbol-id>
-
-# Start MCP server
-repo-context serve-mcp
-
-# Start watch mode
-repo-context watch /path/to/repo
-```
-
-### Testing
-
-```bash
 # Run all tests
 pytest
 
 # Run specific test file
-pytest tests/test_db_init.py
+pytest tests/test_scanner.py
 
-# Run with coverage
-pytest --cov=src/repo_context
+# Run with verbose output
+pytest -v
 ```
 
 ---
@@ -203,19 +156,21 @@ pytest --cov=src/repo_context
 
 ### Code Style
 
-- **Type hints:** Use modern Python typing (3.14+)
+- **Type hints:** Use modern Python typing (`Optional[str]`, `str | None`)
 - **Dataclasses:** Prefer for models and contracts
 - **Functions:** Small, focused, single responsibility
 - **Modules:** Keep under ~200 lines; split when growing
 - **Naming:** Explicit over clever; `snake_case` for functions, `PascalCase` for classes
+- **Imports:** All imports at top of file; never inside functions or classes
 
 ### Model Design
 
 - **Canonical schema first:** All subsystems target the same models
-- **IDs over names:** Stable identifiers for graph entities
+- **IDs over names:** Stable identifiers for graph entities (e.g., `file:{path}`, `repo:{name}`)
 - **Provenance matters:** Record `source` (e.g., `python-ast`, `lsp`, `derived`)
 - **Confidence fields:** Track trustworthiness of data
 - **Internal schema is truth:** Normalize LSP/AST data; do not use raw objects
+- **No mutable defaults:** Use `field(default_factory=list)` or `field(default_factory=dict)`
 
 ### Database Rules
 
@@ -225,20 +180,35 @@ pytest --cov=src/repo_context
 - **Indexes:** Add indexes for `repo_id`, `file_id`, `qualified_name`, `from_id`, `to_id`
 - **Transactions:** Wrap file-level operations in transactions
 
+### FileRecord Contract
+
+All fields must be present:
+- `id: str` - Format: `file:{repo_relative_path}`
+- `repo_id: str` - From repo record
+- `file_path: str` - Repo-relative, POSIX-style
+- `uri: str` - Valid `file://` URI
+- `module_path: str` - Derived from filesystem (e.g., `app.services.auth`)
+- `language: str` - Exactly `python`
+- `content_hash: str` - SHA-256 with `sha256:` prefix
+- `size_bytes: int` - From filesystem
+- `last_modified_at: str` - ISO 8601 UTC string
+- `last_indexed_at: str | None` - Set during scan
+
 ### Security & Safety
 
 - **No secrets in code:** Use environment variables or config files
-- **Validate all input:** MCP tool inputs must be validated
+- **Validate all input:** CLI inputs must be validated
 - **Fail closed:** When in doubt, deny access or block implementation
-- **Deterministic outputs:** MCP tools return facts, not prose
+- **Deterministic outputs:** CLI tools return facts, not prose
 - **Structured errors:** Use error codes (`invalid_input`, `symbol_not_found`, etc.)
 
 ### Testing Practices
 
 - **Test persistence correctness:** Upsert, cleanup, replacement
-- **Mock LSP in unit tests:** Do not depend on real language server
-- **Scenario-based workflow tests:** Validate end-to-end behavior
+- **Use temporary directories:** Never write to default DB path in tests
+- **Scenario-based tests:** Validate end-to-end behavior
 - **Fixture strategy:** Use small realistic repo fixtures
+- **Test edge cases:** Empty repos, invalid paths, ignored directories
 
 ---
 
@@ -246,19 +216,20 @@ pytest --cov=src/repo_context
 
 The system must be built in this exact sequence to avoid rework:
 
-1. **Bootstrap** - Project setup, models, SQLite init, CLI shell
-2. **Repo Scanner** - File inventory, path normalization, hashing
-3. **AST Extraction** - Symbol extraction, structural edges
-4. **Graph Storage** - Persistence, upsert, cleanup, queries
-5. **Context Builder** - Symbol-centered context assembly
-6. **LSP References** - Reference enrichment, location mapping
-7. **Risk Engine** - Facts, issues, scoring, decisions
-8. **MCP Server** - Tool exposure, input/output contracts
-9. **Watch Mode** - Incremental updates on file changes
-10. **Real Workflow** - Plan->check->approve->implement enforcement
+1. **Bootstrap** ✅ - Project setup, models, SQLite init, CLI shell
+2. **Repo Scanner** ✅ - File inventory, path normalization, hashing
+3. **AST Extraction** ⏳ - Symbol extraction, structural edges
+4. **Graph Storage** ⏳ - Persistence, upsert, cleanup, queries
+5. **Context Builder** ⏳ - Symbol-centered context assembly
+6. **LSP References** ⏳ - Reference enrichment, location mapping
+7. **Risk Engine** ⏳ - Facts, issues, scoring, decisions
+8. **MCP Server** ⏳ - Tool exposure, input/output contracts
+9. **Watch Mode** ⏳ - Incremental updates on file changes
+10. **Real Workflow** ⏳ - Plan->check->approve->implement enforcement
 
 **Build logic:**
-- Phases 1-4: Build truth (scanning, extraction, storage)
+- Phases 1-2: Build file inventory (current state)
+- Phases 3-4: Build structural graph truth
 - Phases 5-7: Build reasoning inputs (context, references, risk)
 - Phase 8: Expose tools (MCP)
 - Phase 9: Keep state fresh (watch mode)
@@ -266,133 +237,55 @@ The system must be built in this exact sequence to avoid rework:
 
 ---
 
+## Database Schema
+
+### Tables (5)
+
+1. **repos** - Repository metadata
+2. **files** - File inventory
+3. **nodes** - Symbol nodes (modules, classes, functions)
+4. **edges** - Relationships between nodes
+5. **index_runs** - Indexing operation tracking
+
+### Indexes (13)
+
+- `idx_nodes_repo_id`, `idx_nodes_file_id`, `idx_nodes_qualified_name`, `idx_nodes_parent_id`, `idx_nodes_kind`
+- `idx_edges_repo_id`, `idx_edges_from_id`, `idx_edges_to_id`, `idx_edges_kind`, `idx_edges_evidence_file_id`
+- `idx_files_repo_id`
+- `idx_index_runs_repo_id`, `idx_index_runs_status`
+
+---
+
+## CLI Commands
+
+| Command | Description | Options |
+|---------|-------------|---------|
+| `init-db` | Initialize SQLite database | `--db-path PATH` |
+| `doctor` | Health check (tables, indexes) | `--db-path PATH` |
+| `scan-repo` | Scan repository for Python files | `--db-path PATH`, `--json` |
+
+---
+
 ## Key Design Principles
 
-### MCP Server Design
+### Scanner Design
 
-- **Deterministic only:** Return facts, issue codes, scores, decisions
-- **Narrow tools:** One tool, one job
-- **Strict schemas:** Validate inputs, stable outputs
-- **Structured errors:** Error codes, not string exceptions
-- **No natural language:** Agent explains; server provides data
+- **Deterministic output:** Same repo → same file list (sorted by `file_path`)
+- **Exact directory matching:** Ignore `.git`, not `.github`
+- **POSIX-style paths:** Always use forward slashes internally
+- **Module derivation:** Drop `.py`, drop trailing `__init__`, join with dots
 
-### Risk Engine Design
+### Serialization
 
-- **Facts first, scoring second:** Extract facts, derive issues, compute score
-- **Reusable:** Works for single symbols, target sets, later plan wrappers
-- **Honest about uncertainty:** Stale/low-confidence data increases caution
-- **Deterministic:** Same graph state -> same risk output
+- **JSON helpers:** `to_json()` and `from_json()` in `models/common.py`
+- **Sorted keys:** JSON output uses `sort_keys=True` for determinism
+- **Dataclass support:** `to_json()` handles dataclasses via `asdict()`
 
-### Reference Enrichment
+### Hashing
 
-- **Store `references`, derive `referenced_by`:** Single source of truth
-- **Map to internal symbols:** LSP locations become graph edges
-- **Honest confidence:** Exact containment = 0.9, module fallback = 0.7
-- **Unavailable ≠ zero:** Mark `available=False` when never refreshed
-
-### Watch Mode
-
-- **Incremental by default:** Reindex changed files only
-- **Debounce noisy events:** Batch multiple saves into one operation
-- **Preserve valid state on parse failure:** Do not destroy graph on temp syntax errors
-- **Invalidate references:** Mark stale when evidence file changes
-
-### Workflow Enforcement
-
-- **Planning ≠ Implementation:** Hard separation
-- **Required tool usage:** Resolve, inspect, refresh, analyze before approval
-- **Blocking conditions:** Unresolved targets, missing context, no approval
-- **Agent rules:** Never implement before approval; never hide uncertainty
-
----
-
-## Data Contracts
-
-### SymbolNode (Base)
-
-```python
-@dataclass
-class SymbolNode:
-    id: str                    # sym:{repo_id}:{kind}:{qualified_name}
-    repo_id: str
-    file_id: str
-    language: str
-    kind: str                  # module, class, function, async_function, method, async_method
-    name: str
-    qualified_name: str        # app.services.auth.AuthService.login
-    uri: str                   # file:///...
-    range_json: Optional[str]
-    selection_range_json: Optional[str]
-    parent_id: Optional[str]
-    visibility_hint: Optional[str]  # public, private_like, protected_like, module
-    doc_summary: Optional[str]
-    content_hash: str
-    semantic_hash: str
-    source: str                # python-ast, lsp, merged
-    confidence: float
-    payload_json: str          # Type-specific fields
-    last_indexed_at: Optional[str]
-```
-
-### Edge
-
-```python
-@dataclass
-class Edge:
-    id: str                    # edge:{repo_id}:{kind}:{from_id}->{to_id}:{evidence}
-    repo_id: str
-    kind: str                  # contains, imports, inherits, references
-    from_id: str
-    to_id: str
-    source: str                # python-ast, lsp, derived
-    confidence: float
-    evidence_file_id: Optional[str]
-    evidence_uri: Optional[str]
-    evidence_range_json: Optional[str]
-    payload_json: str
-    last_indexed_at: Optional[str]
-```
-
-### SymbolContext
-
-```python
-@dataclass
-class SymbolContext:
-    focus_symbol: dict
-    parent: Optional[dict]
-    children: list[dict]
-    outgoing_edges: list[dict]
-    incoming_edges: list[dict]
-    reference_summary: dict    # reference_count, referencing_file_count, available
-    structural_summary: dict   # kind, child_count, edge counts
-    freshness: dict            # is_stale, timestamps
-    confidence: dict           # overall_confidence, min values
-```
-
-### RiskResult
-
-```python
-@dataclass
-class RiskResult:
-    targets: list[RiskTarget]
-    facts: RiskFacts
-    issues: list[str]          # Issue codes
-    risk_score: int            # 0-100
-    decision: str              # safe_enough, review_required, high_risk
-```
-
----
-
-## MCP Tools
-
-| Tool | Input | Output | Purpose |
-|------|-------|--------|---------|
-| `resolve_symbol` | repo_id, qualified_name, kind | symbol | Resolve human name to stable ID |
-| `get_symbol_context` | symbol_id | SymbolContext | Full local context |
-| `refresh_symbol_references` | symbol_id | reference_summary | LSP reference refresh |
-| `get_symbol_references` | symbol_id | references list | Stored incoming references |
-| `analyze_symbol_risk` | symbol_id | RiskResult | Single-symbol risk |
-| `analyze_target_set_risk` | symbol_ids list | RiskResult | Multi-symbol risk |
+- **SHA-256:** All content hashes use SHA-256
+- **Prefix format:** All hashes prefixed with `sha256:`
+- **Binary reading:** Files hashed as bytes, not text
 
 ---
 
@@ -408,37 +301,16 @@ class RiskResult:
 ### Database
 
 - **Forgetting cleanup on reindex:** Always replace file graph cleanly
-- **Skipping indexes:** Graph queries need indexes on from_id, to_id, qualified_name
+- **Skipping indexes:** Graph queries need indexes on `from_id`, `to_id`, `qualified_name`
 - **Raw SQL everywhere:** Use storage helpers; keep SQL in one place
 - **Orphan nodes/edges:** Every entity must belong to a repo and file
 
-### MCP
+### Scanner
 
-- **Making server "smart":** Deterministic facts, not conversational explanations
-- **Leaking raw DB rows:** Adapt internal objects to stable tool payloads
-- **Mixing refresh and read:** Reference refresh should be explicit, not hidden
-- **Weak error contracts:** Use structured error codes, not string exceptions
-
-### Risk Engine
-
-- **Putting plan resolution in engine:** Engine works on resolved targets
-- **Returning prose instead of structure:** Facts, issues, scores, decisions
-- **Treating unavailable references as zero:** Unavailable is not zero
-- **Scattering risk rules:** Keep all risk logic in one place
-
-### Watch Mode
-
-- **Full reindex on every save:** Defeats the purpose; use incremental updates
-- **Trusting raw watcher events:** Normalize and debounce first
-- **Deleting valid graph on syntax errors:** Preserve last valid state
-- **Forgetting reference invalidation:** Structural refresh alone is insufficient
-
-### Workflow
-
-- **Treating approval as optional:** Hard gate; no exceptions
-- **Letting agent code while "still planning":** Destroys guardrail model
-- **Using MCP after plan is decided:** MCP should improve plan before approval
-- **Hiding uncertainty from human:** User must know about stale/weak context
+- **Fuzzy directory matching:** Use exact name matching for ignored dirs
+- **Absolute paths as identity:** Always use repo-relative paths
+- **Non-deterministic ordering:** Always sort results by `file_path`
+- **Hardcoding ignore rules:** Use `AppConfig.ignored_dirs` and `AppConfig.supported_extensions`
 
 ---
 
@@ -461,9 +333,9 @@ class RiskResult:
 ## References
 
 - `build-plan-phases/00-quick-summary.md` - Phase overview
-- `build-plan-phases/01-bootstrap.md` - Foundation setup
-- `build-plan-phases/02-repo-scanner.md` - File inventory
-- `build-plan-phases/03-ast-extraction.md` - Structural graph
+- `build-plan-phases/01-bootstrap.md` - Foundation setup (✅ Complete)
+- `build-plan-phases/02-repo-scanner.md` - File inventory (✅ Complete)
+- `build-plan-phases/03-ast-extraction.md` - Structural graph (⏳ Next)
 - `build-plan-phases/04-graph-storage.md` - Persistence layer
 - `build-plan-phases/05-context-builder.md` - Context assembly
 - `build-plan-phases/06-lsp-references.md` - Reference enrichment

@@ -1,1490 +1,1070 @@
-```md
-# 03-ast-extraction.md
+Absolutely. Here is the rigid checkbox version, written to leave as little room for interpretation as possible and to stay consistent with an already-built phase 1 and phase 2.
 
-## Purpose
+# 03 AST Extraction - Exact Implementation Checklist
 
-This phase builds the AST extraction layer.
+## Objective
 
-Its job is to turn Python source files into structured graph-ready symbols and structural relationships using Python AST.
+Implement phase 3 of the repository indexing pipeline.
 
-This phase takes the file inventory from the repository scanner and produces:
+Phase 3 must read Python files already discovered by phase 2, parse them with Python AST, extract structural symbols and structural relationships, and persist the result to SQLite.
 
+Phase 3 must produce:
 - module nodes
 - class nodes
 - callable nodes
-- structural edges such as `contains`, `imports`, and `inherits`
+- `contains` edges
+- `imports` edges
+- `inherits` edges
 
-This phase does **not** use LSP yet.
-It does **not** compute references yet.
-It does **not** expose MCP tools yet.
-
-The AST layer is the structural truth layer.
-
----
-
-## Why this phase matters
-
-The whole graph depends on this phase.
-
-If AST extraction is wrong:
-- symbols will be missing
-- qualified names will be wrong
-- hierarchy will be wrong
-- imports will be misleading
-- later reference mapping will attach to the wrong nodes
-- risk evaluation will be built on broken structure
-
-This phase is where the codebase stops being “a bunch of files” and becomes “a structured system the agent can reason about”.
-
----
-
-## Phase goals
-
-By the end of this phase, you should have:
-
-- Python files loaded from the scanner output
-- AST trees built for those files
-- module nodes extracted
-- class nodes extracted
-- top-level function nodes extracted
-- async function nodes extracted
-- method nodes extracted
-- async method nodes extracted
-- decorators extracted
-- base classes extracted
-- imports extracted
-- doc summaries extracted
-- declaration ranges extracted
-- selection ranges extracted
-- qualified names derived
-- structural edges created
-- nodes and edges persisted to SQLite
-
----
-
-## Phase non-goals
-
-Do **not** do any of this in phase 3:
-
-- LSP requests
+Phase 3 must not produce:
+- LSP-based data
 - `references` edges
-- reverse `referenced_by` resolution
-- semantic call graph generation
+- reverse reference mappings
+- semantic call graphs
 - risk scoring
-- MCP exposure
+- MCP tools
 - watch mode
 
-This phase is structural only.
+***
 
----
+## Consistency Rules
 
-## Inputs and outputs
+These rules are mandatory.
 
-## Inputs
+- [ ] Reuse the existing phase 1 and phase 2 models, database schema style, naming style, and storage patterns.
+- [ ] Do not invent a parallel model shape for nodes or edges.
+- [ ] Do not rename existing model fields just for phase 3 convenience.
+- [ ] Do not change phase 1 or phase 2 contracts unless absolutely required.
+- [ ] If a helper already exists from earlier phases and fits the need, reuse it.
+- [ ] If a helper does not exist, add it in the phase 3 parsing or storage modules only.
+- [ ] Keep the same serialization style already used in the project for JSON fields.
+- [ ] Keep the same SQLite access style already used in the project.
+- [ ] Keep the same CLI or pipeline orchestration style already used in earlier phases.
+- [ ] Keep behavior deterministic.
 
-This phase depends on phase 2.
+***
 
-It takes:
-- a `RepoRecord`
-- a list of `FileRecord` values for Python files
-- the repo root path
-- access to file contents
+## Required Inputs
 
-## Outputs
+Phase 3 must consume these existing inputs:
 
-This phase produces:
-- `SymbolNode` records for modules, classes, and callables
-- `Edge` records for `contains`, `imports`, and `inherits`
-- optional extraction warnings or errors
-- a summary of counts
+- [ ] one `RepoRecord`
+- [ ] Python `FileRecord` values already produced by phase 2
+- [ ] repository root path
+- [ ] file contents from disk
+- [ ] SQLite database connection or the existing storage access layer
 
----
+Do not add new required inputs for this phase.
 
-## AST design principles
+***
 
-### Principle 1: AST is structural truth
+## Required Outputs
 
-For version 1, AST is the main source of truth for:
-- what declarations exist
-- where they live
-- what contains what
-- what imports exist
-- what base classes are declared
+Phase 3 must produce these outputs:
 
-### Principle 2: Do not pretend AST knows everything
+- [ ] `SymbolNode` record for each Python module
+- [ ] `SymbolNode` record for each top-level class
+- [ ] `SymbolNode` record for each top-level function
+- [ ] `SymbolNode` record for each top-level async function
+- [ ] `SymbolNode` record for each direct class method
+- [ ] `SymbolNode` record for each direct async class method
+- [ ] `Edge` record for each `contains` relationship
+- [ ] `Edge` record for each `imports` relationship
+- [ ] `Edge` record for each `inherits` relationship
+- [ ] extraction errors or warnings for broken files
+- [ ] summary counts of extracted nodes and edges
 
-AST is great for structure.
-It is not perfect for semantic resolution.
-Do not try to force it to become a full semantic engine.
+Do not output any new graph relationship kinds in this phase.
 
-### Principle 3: Keep unresolved data explicit
+***
 
-If a base class or import target cannot be fully resolved, store it honestly as unresolved or as a string-based placeholder.
-Do not invent precision.
+## Required File Layout
 
-### Principle 4: Qualified names must be deterministic
+Create exactly these phase 3 modules if they do not already exist:
 
-Qualified naming is a core identity rule.
-If you are inconsistent here, everything later gets worse.
+- [ ] `src/repo_context/parsing/__init__.py`
+- [ ] `src/repo_context/parsing/ast_loader.py`
+- [ ] `src/repo_context/parsing/naming.py`
+- [ ] `src/repo_context/parsing/module_extractor.py`
+- [ ] `src/repo_context/parsing/class_extractor.py`
+- [ ] `src/repo_context/parsing/callable_extractor.py`
+- [ ] `src/repo_context/parsing/import_extractor.py`
+- [ ] `src/repo_context/parsing/inheritance_extractor.py`
+- [ ] `src/repo_context/parsing/ranges.py`
+- [ ] `src/repo_context/parsing/docstrings.py`
+- [ ] `src/repo_context/parsing/pipeline.py`
+- [ ] `src/repo_context/storage/nodes.py`
+- [ ] `src/repo_context/storage/edges.py`
 
----
+Do not create extra phase-3-specific packages unless strictly necessary.
 
-## What the AST layer is responsible for
+***
 
-The AST extraction layer should answer:
+## Symbol Kinds
 
-- what module does this file represent
-- what classes are declared in the file
-- what functions are declared in the file
-- what methods belong to which classes
-- what async callables exist
-- what imports are present
-- what bases are declared for classes
-- what decorators are attached
-- where each declaration starts and ends
+Use exactly these `kind` values and no others:
 
-That is enough for version 1.
+- [ ] `module`
+- [ ] `class`
+- [ ] `function`
+- [ ] `async_function`
+- [ ] `method`
+- [ ] `async_method`
 
----
+Do not add:
+- nested function kinds
+- property kinds
+- static method kinds
+- classmethod kinds
+- decorator kinds
 
-## Recommended new modules
+Those can be added in later phases if needed.
 
-Add these packages and files:
+***
 
-```text
-src/
-  repo_context/
-    parsing/
-      __init__.py
-      ast_loader.py
-      naming.py
-      module_extractor.py
-      class_extractor.py
-      callable_extractor.py
-      import_extractor.py
-      inheritance_extractor.py
-      ranges.py
-      docstrings.py
-      pipeline.py
-    storage/
-      nodes.py
-      edges.py
-```
+## Identity Rules
 
-### Why this split
-
-- `ast_loader.py`: file -> AST
-- `naming.py`: qualified names and IDs
-- `module_extractor.py`: module node logic
-- `class_extractor.py`: class extraction
-- `callable_extractor.py`: function and method extraction
-- `import_extractor.py`: `imports` edges
-- `inheritance_extractor.py`: `inherits` edges
-- `ranges.py`: AST location normalization
-- `docstrings.py`: doc summary helpers
-- `pipeline.py`: orchestration
-- `nodes.py` and `edges.py`: persistence helpers
-
-This keeps logic small and AI-generated code less likely to become spaghetti.
-
----
-
-## AST nodes you care about in version 1
-
-You do not need the whole Python AST universe.
-
-The main node types you care about are:
-
-- `ast.Module`
-- `ast.ClassDef`
-- `ast.FunctionDef`
-- `ast.AsyncFunctionDef`
-- `ast.Import`
-- `ast.ImportFrom`
-
-You will also inspect:
-- `node.decorator_list`
-- `node.bases`
-- `node.args`
-- `node.returns`
-
-That is enough to build the initial graph.
-
----
-
-## Symbol model strategy
-
-This phase should populate the base `SymbolNode` plus type-specific payload fields.
-
-The graph layers are:
-
-- module layer
-- class layer
-- callable layer
-
-That mirrors the structure you want for the graph.  
-The user explicitly explored decomposing the graph into layers for modules, classes, and functions/methods, so this phase should preserve that layered shape directly in the extracted nodes. [The original request context says not to include citations in output, so they are omitted here.]
-
----
-
-## Symbol kinds to support now
-
-Use these `kind` values:
-
-- `module`
-- `class`
-- `function`
-- `async_function`
-- `method`
-- `async_method`
-
-Do not overcomplicate this with too many subtypes yet.
-
----
-
-## Node identity rules
-
-You need stable rules now.
+Apply these ID rules exactly.
 
 ### Module node ID
 
-Recommended format:
-
-```text
-sym:{repo_id}:module:{module_path}
-```
+- [ ] format is `sym:{repo_id}:module:{module_path}`
 
 Example:
-
 ```text
 sym:repo:project:module:app.services.auth
 ```
 
 ### Class node ID
 
-Recommended format:
-
-```text
-sym:{repo_id}:class:{qualified_name}
-```
+- [ ] format is `sym:{repo_id}:class:{qualified_name}`
 
 Example:
-
 ```text
 sym:repo:project:class:app.services.auth.AuthService
 ```
 
 ### Callable node ID
 
-Recommended format:
-
-```text
-sym:{repo_id}:{kind}:{qualified_name}
-```
+- [ ] format is `sym:{repo_id}:{kind}:{qualified_name}`
 
 Example:
-
 ```text
 sym:repo:project:method:app.services.auth.AuthService.login
 ```
 
-### Why this matters
+### Edge IDs
 
-Later edges, context queries, and MCP tool outputs should always point to stable IDs.
-Do not rely on local names.
+- [ ] `contains` edges must use a deterministic ID derived from repo id, edge kind, parent id, and child id
+- [ ] `imports` edges must use a deterministic ID derived from repo id, edge kind, module node id, unresolved target, and line number when needed for uniqueness
+- [ ] `inherits` edges must use a deterministic ID derived from repo id, edge kind, class node id, and base name
 
----
+Do not use random IDs.
 
-## Qualified name rules
+***
 
-This is one of the most important parts of the phase.
+## Qualified Name Rules
 
-### Module qualified name
+Apply these naming rules exactly.
 
-Use the `module_path` derived in phase 2.
+- [ ] module qualified name = `file_record.module_path`
+- [ ] class qualified name = `{module_path}.{class_name}`
+- [ ] top-level function qualified name = `{module_path}.{function_name}`
+- [ ] method qualified name = `{class_qualified_name}.{method_name}`
 
-Example:
+Do not vary this between extractors.
 
-```text
-app.services.auth
-```
+***
 
-### Class qualified name
+## Nested Function Policy
 
-Append class name to module path.
+Apply this rule exactly:
 
-Example:
+- [ ] ignore nested functions in version 1
+- [ ] do not create nodes for nested functions
+- [ ] do not create edges for nested functions
+- [ ] do not partially support nested functions
 
-```text
-app.services.auth.AuthService
-```
+This must be tested explicitly.
 
-### Top-level function qualified name
+***
 
-Append function name to module path.
+## AST Coverage
 
-Example:
+Only use these AST node types as first-class extraction targets:
 
-```text
-app.services.auth.build_auth_payload
-```
+- [ ] `ast.Module`
+- [ ] `ast.ClassDef`
+- [ ] `ast.FunctionDef`
+- [ ] `ast.AsyncFunctionDef`
+- [ ] `ast.Import`
+- [ ] `ast.ImportFrom`
 
-### Method qualified name
+Inspect these attributes where relevant:
 
-Append method name to class qualified name.
+- [ ] `decorator_list`
+- [ ] `bases`
+- [ ] `args`
+- [ ] `returns`
 
-Example:
+Do not expand scope to broader semantic analysis.
 
-```text
-app.services.auth.AuthService.login
-```
+***
 
-### Nested functions
+## Step 1 - AST Loader
 
-For version 1, you have two valid choices:
+### File
 
-## Option A: Ignore nested functions completely
+- [ ] `src/repo_context/parsing/ast_loader.py`
 
-Pros:
-- simpler
-- cleaner graph
-- less noise
+### Implement
 
-Cons:
-- some internal behavior is not represented
+- [ ] read file content from disk using UTF-8
+- [ ] return file text as a string
+- [ ] parse file text with `ast.parse`
+- [ ] return parsed `ast.Module`
+- [ ] surface read failures explicitly
+- [ ] surface syntax failures explicitly
 
-## Option B: Represent nested functions
+### Do not do
 
-Pros:
-- more complete
+- [ ] do not silently ignore parse errors
+- [ ] do not persist anything in this module
+- [ ] do not mutate database state here
 
-Cons:
-- more complexity
-- harder naming and parent rules
-- often low value for the first version
+### Done when
 
-My blunt recommendation:
-- ignore nested functions in v1 unless you already know you need them
+- [ ] valid Python file returns text and AST
+- [ ] invalid Python file returns a clear failure the pipeline can record
 
----
+***
 
-## Range extraction strategy
+## Step 2 - Naming Helpers
 
-You need two location concepts:
+### File
 
-- `range`: full declaration span
-- `selection_range`: narrower range around the symbol name
+- [ ] `src/repo_context/parsing/naming.py`
 
-### Why this matters
+### Implement
 
-- `range` helps with source slicing and containment checks
-- `selection_range` is the best target for later LSP reference requests
+- [ ] helper to build module qualified name
+- [ ] helper to build class qualified name
+- [ ] helper to build top-level callable qualified name
+- [ ] helper to build method qualified name
+- [ ] helper to build module node ID
+- [ ] helper to build class node ID
+- [ ] helper to build callable node ID
 
-### Important Python AST facts
+### Do not do
 
-Modern Python AST nodes usually provide:
-- `lineno`
-- `col_offset`
-- `end_lineno`
-- `end_col_offset`
+- [ ] do not duplicate naming logic in extractor modules
+- [ ] do not invent alternative naming schemes
 
-Line numbers are usually one-based.
-Your canonical internal schema should stay zero-based.
+### Done when
 
----
+- [ ] all phase 3 extractors can use one shared naming source
+- [ ] same input always yields same output
 
-## `ranges.py` helpers
+***
 
-Recommended functions:
+## Step 3 - Range Helpers
 
-```python
-import ast
-from typing import Optional
+### File
 
-def to_zero_based_line(line: Optional[int]) -> Optional[int]:
-    ...
+- [ ] `src/repo_context/parsing/ranges.py`
 
-def make_position(line: Optional[int], character: Optional[int]) -> dict | None:
-    ...
+### Implement
 
-def make_range(node: ast.AST) -> dict | None:
-    ...
+- [ ] `to_zero_based_line(line)`
+- [ ] `make_position(line, character)`
+- [ ] `make_range(node)`
+- [ ] `make_name_selection_range(node)`
 
-def make_name_selection_range(node: ast.AST) -> dict | None:
-    ...
-```
+### Exact behavior
 
-### Expected behavior
+- [ ] convert AST one-based line numbers to zero-based line numbers
+- [ ] preserve character offsets as provided by AST
+- [ ] `make_range(node)` must use `lineno`, `col_offset`, `end_lineno`, and `end_col_offset` when present
+- [ ] `make_name_selection_range(node)` must return a narrower name-focused range for `ClassDef`, `FunctionDef`, and `AsyncFunctionDef`
+- [ ] if exact name token bounds are difficult, return a consistent approximation based on declaration start
+- [ ] if required location metadata is missing, return `None`
 
-#### `to_zero_based_line`
-- converts AST one-based lines to zero-based lines
+### Do not do
 
-#### `make_position`
-- returns `{line, character}` if data exists
+- [ ] do not mix one-based and zero-based lines anywhere in persisted output
 
-#### `make_range`
-- builds a full range using start and end location metadata
+### Done when
 
-#### `make_name_selection_range`
-- builds a narrower range around the symbol name token
+- [ ] all extracted declarations can store normalized location data consistently
 
-### Honest limitation
+***
 
-The exact name token range is not always trivial from raw AST alone.
-For v1, a practical approximation is fine if it is consistent.
+## Step 4 - Docstring Helper
 
----
+### File
 
-## Doc summary strategy
+- [ ] `src/repo_context/parsing/docstrings.py`
 
-You should extract a short summary from docstrings when present.
+### Implement
 
-### Good rule
+- [ ] `get_doc_summary(node)`
 
-Use the first non-empty chunk of the docstring, not the whole docstring.
+### Exact behavior
 
-Why:
-- cheaper
-- cleaner
-- better for future agent context
+- [ ] call `ast.get_docstring(node)`
+- [ ] strip leading and trailing whitespace
+- [ ] split into meaningful chunks
+- [ ] return the first non-empty short paragraph or first meaningful line
+- [ ] return `None` if docstring is missing or empty
 
-### `docstrings.py`
+### Do not do
 
-Recommended function:
+- [ ] do not generate summaries
+- [ ] do not return the full docstring unless it is already only one short meaningful chunk
 
-```python
-import ast
+### Done when
 
-def get_doc_summary(node: ast.AST) -> str | None:
-    ...
-```
+- [ ] module, class, and callable extractors can use one shared doc summary helper
 
-Expected behavior:
-- use `ast.get_docstring(node)`
-- strip whitespace
-- return the first short paragraph or first meaningful line
+***
 
-Do not try to generate prose.
-Just extract what is already there.
+## Step 5 - Module Extraction
 
----
+### File
 
-## Module extraction
+- [ ] `src/repo_context/parsing/module_extractor.py`
 
-Each Python file should become one module node.
+### Implement
 
-### Module node purpose
+For each parsed Python file:
 
-A module node represents:
-- the file as a logical Python module
-- the top-level parent for classes and top-level functions
-- the origin point for imports
+- [ ] create exactly one module node
+- [ ] set `kind` to `module`
+- [ ] set `parent_id` to `None`
+- [ ] derive `qualified_name` from `file_record.module_path`
+- [ ] derive `name` from the last component of `module_path`, or fallback to file path if needed
+- [ ] set `language` to `python`
+- [ ] set `uri` from `file_record.uri`
+- [ ] set `doc_summary` from the module AST node
+- [ ] set `content_hash` from `file_record.content_hash`
+- [ ] set initial `semantic_hash` equal to `file_record.content_hash`
+- [ ] set `source` to `python-ast`
+- [ ] set `confidence` to `1.0`
+- [ ] set `last_indexed_at` from `file_record.last_indexed_at`
 
-### Module node construction
+### Required module range behavior
 
-Inputs:
-- `RepoRecord`
-- `FileRecord`
-- AST tree for that file
+- [ ] module `range_json` must cover the full file
+- [ ] module `selection_range_json` may point to line 0 character 0 as a consistent placeholder in v1
 
-### Suggested module fields
+### Required module payload
 
-Base fields:
-- `id`
-- `repo_id`
-- `file_id`
-- `language`
-- `kind="module"`
-- `name`
-- `qualified_name`
-- `uri`
-- `range`
-- `selection_range`
-- `parent_id=None`
-- `visibility_hint="module"`
-- `doc_summary`
-- `content_hash`
-- `semantic_hash`
-- `source="python-ast"`
-- `confidence=1.0`
-- `last_indexed_at`
+- [ ] `file_path`
+- [ ] `module_path`
+- [ ] `package_path`
+- [ ] `imported_modules`
+- [ ] `imported_symbols`
+- [ ] `top_level_symbol_ids`
 
-Payload fields:
-- `file_path`
-- `module_path`
-- `package_path`
-- `imported_modules`
-- `imported_symbols`
-- `top_level_symbol_ids`
+### Do not do
 
-### Range rule for modules
+- [ ] do not create more than one module node per file
+- [ ] do not leave module payload keys missing
 
-A module node should cover the full file.
+### Done when
 
-If you do not want to compute an exact end character for the last line yet, use a practical file-span approximation and be consistent.
-
----
-
-## Module extraction example
-
-```python
-import ast
-from pathlib import Path
-
-def extract_module_node(repo_id: str, file_record, tree: ast.Module, file_text: str) -> dict:
-    lines = file_text.splitlines()
-    last_line = max(0, len(lines) - 1)
-
-    module_path = file_record.module_path
-    package_path = ".".join(module_path.split(".")[:-1]) if "." in module_path else ""
-
-    return {
-        "id": f"sym:{repo_id}:module:{module_path}",
-        "repo_id": repo_id,
-        "file_id": file_record.id,
-        "language": "python",
-        "kind": "module",
-        "name": module_path.split(".")[-1] if module_path else file_record.file_path,
-        "qualified_name": module_path,
-        "uri": file_record.uri,
-        "range_json": {
-            "start": {"line": 0, "character": 0},
-            "end": {"line": last_line, "character": 0}
-        },
-        "selection_range_json": {
-            "start": {"line": 0, "character": 0},
-            "end": {"line": 0, "character": 0}
-        },
-        "parent_id": None,
-        "visibility_hint": "module",
-        "doc_summary": get_doc_summary(tree),
-        "content_hash": file_record.content_hash,
-        "semantic_hash": file_record.content_hash,
-        "source": "python-ast",
-        "confidence": 1.0,
-        "payload_json": {
-            "file_path": file_record.file_path,
-            "module_path": module_path,
-            "package_path": package_path,
-            "imported_modules": [],
-            "imported_symbols": [],
-            "top_level_symbol_ids": []
-        },
-        "last_indexed_at": file_record.last_indexed_at,
-    }
-```
-
-This is only a sketch.
-The exact serialization style can differ.
-The important part is the contract.
-
----
-
-## Class extraction
-
-Each `ast.ClassDef` under module scope should become a class node.
-
-### What to extract from classes
-
-- name
-- qualified name
-- declaration range
-- selection range
-- base class names
-- decorators
-- doc summary
-- parent module
-- method IDs later
-
-### Suggested class payload
-
-- `base_names`
-- `decorators`
-- `method_ids`
-
-### Class extraction example
-
-```python
-import ast
-
-def extract_class_node(repo_id: str, file_record, module_node_id: str, module_path: str, node: ast.ClassDef) -> dict:
-    qualified_name = f"{module_path}.{node.name}" if module_path else node.name
-    base_names = [ast.unparse(base) for base in node.bases] if node.bases else []
-    decorators = [ast.unparse(d) for d in node.decorator_list] if node.decorator_list else []
-
-    return {
-        "id": f"sym:{repo_id}:class:{qualified_name}",
-        "repo_id": repo_id,
-        "file_id": file_record.id,
-        "language": "python",
-        "kind": "class",
-        "name": node.name,
-        "qualified_name": qualified_name,
-        "uri": file_record.uri,
-        "range_json": make_range(node),
-        "selection_range_json": make_name_selection_range(node),
-        "parent_id": module_node_id,
-        "visibility_hint": "private_like" if node.name.startswith("_") else "public",
-        "doc_summary": get_doc_summary(node),
-        "content_hash": "",
-        "semantic_hash": "",
-        "source": "python-ast",
-        "confidence": 1.0,
-        "payload_json": {
-            "base_names": base_names,
-            "decorators": decorators,
-            "method_ids": []
-        },
-        "last_indexed_at": file_record.last_indexed_at,
-    }
-```
-
-### Important note
-
-`ast.unparse` is fine here for version 1.
-Do not overbuild pretty printers for base names or decorators.
-
----
-
-## Callable extraction
-
-This phase should extract:
-
-- top-level `FunctionDef` as `function`
-- top-level `AsyncFunctionDef` as `async_function`
-- class-contained `FunctionDef` as `method`
-- class-contained `AsyncFunctionDef` as `async_method`
-
-### What to extract from callables
-
-- name
-- qualified name
-- parameters
-- return annotation
-- decorators
-- async status
-- method status
-- generator hint
-- doc summary
-- parent symbol
-
-### Parameter strategy
-
-Store parameters as lightweight structured records.
-
-Recommended parameter fields:
-- `name`
-- `kind`
-- `annotation`
-- `default_value_hint`
-
-Do not try to perfectly serialize every Python expression in defaults yet.
-
-A string hint or `None` is enough for v1.
-
----
-
-## Parameter extraction example
-
-```python
-import ast
-
-def extract_parameters(args: ast.arguments) -> list[dict]:
-    result = []
-
-    for arg in getattr(args, "posonlyargs", []):
-        result.append({
-            "name": arg.arg,
-            "kind": "positional_only",
-            "annotation": ast.unparse(arg.annotation) if arg.annotation else None,
-            "default_value_hint": None,
-        })
-
-    for arg in args.args:
-        result.append({
-            "name": arg.arg,
-            "kind": "positional_or_keyword",
-            "annotation": ast.unparse(arg.annotation) if arg.annotation else None,
-            "default_value_hint": None,
-        })
-
-    if args.vararg:
-        result.append({
-            "name": args.vararg.arg,
-            "kind": "var_positional",
-            "annotation": ast.unparse(args.vararg.annotation) if args.vararg.annotation else None,
-            "default_value_hint": None,
-        })
-
-    for arg in args.kwonlyargs:
-        result.append({
-            "name": arg.arg,
-            "kind": "keyword_only",
-            "annotation": ast.unparse(arg.annotation) if arg.annotation else None,
-            "default_value_hint": None,
-        })
-
-    if args.kwarg:
-        result.append({
-            "name": args.kwarg.arg,
-            "kind": "var_keyword",
-            "annotation": ast.unparse(args.kwarg.annotation) if args.kwarg.annotation else None,
-            "default_value_hint": None,
-        })
-
-    return result
-```
-
-### What is intentionally missing
-
-This version does not map defaults to specific parameters yet.
-That is acceptable for version 1 if you stay honest about it.
-
-If you want to improve it, do it carefully and separately.
-
----
-
-## Callable extraction example
-
-```python
-import ast
-
-def extract_callable_node(
-    repo_id: str,
-    file_record,
-    parent_id: str,
-    parent_qualified_name: str,
-    node: ast.FunctionDef | ast.AsyncFunctionDef,
-    is_method: bool,
-) -> dict:
-    is_async = isinstance(node, ast.AsyncFunctionDef)
-    kind = (
-        "async_method" if is_async and is_method else
-        "async_function" if is_async else
-        "method" if is_method else
-        "function"
-    )
-
-    qualified_name = f"{parent_qualified_name}.{node.name}" if parent_qualified_name else node.name
-    decorators = [ast.unparse(d) for d in node.decorator_list] if node.decorator_list else []
-
-    return {
-        "id": f"sym:{repo_id}:{kind}:{qualified_name}",
-        "repo_id": repo_id,
-        "file_id": file_record.id,
-        "language": "python",
-        "kind": kind,
-        "name": node.name,
-        "qualified_name": qualified_name,
-        "uri": file_record.uri,
-        "range_json": make_range(node),
-        "selection_range_json": make_name_selection_range(node),
-        "parent_id": parent_id,
-        "visibility_hint": (
-            "private_like"
-            if node.name.startswith("_") and not (node.name.startswith("__") and node.name.endswith("__"))
-            else "public"
-        ),
-        "doc_summary": get_doc_summary(node),
-        "content_hash": "",
-        "semantic_hash": "",
-        "source": "python-ast",
-        "confidence": 1.0,
-        "payload_json": {
-            "parameters": extract_parameters(node.args),
-            "return_annotation": ast.unparse(node.returns) if node.returns else None,
-            "decorators": decorators,
-            "is_async": is_async,
-            "is_method": is_method,
-            "is_generator": any(isinstance(n, (ast.Yield, ast.YieldFrom)) for n in ast.walk(node)),
-        },
-        "last_indexed_at": file_record.last_indexed_at,
-    }
-```
-
----
-
-## Parent-child hierarchy rules
-
-This phase must create a structural hierarchy.
-
-### Module contains class
-
-If a class is defined at module scope:
-- create a class node
-- create a `contains` edge from module -> class
-
-### Module contains top-level function
-
-If a function is defined at module scope:
-- create a callable node
-- create a `contains` edge from module -> function
-
-### Class contains method
-
-If a method is defined directly inside a class body:
-- create a callable node
-- create a `contains` edge from class -> method
-
-### Important limitation
-
-Ignore deeply nested callables in v1 unless you intentionally decide otherwise.
-Do not half-support them.
-
----
-
-## `contains` edge design
-
-Recommended shape:
-
-```python
-def make_contains_edge(repo_id: str, parent_id: str, child_id: str, file_record, evidence_range: dict | None) -> dict:
-    return {
-        "id": f"edge:{repo_id}:contains:{parent_id}->{child_id}",
-        "repo_id": repo_id,
-        "kind": "contains",
-        "from_id": parent_id,
-        "to_id": child_id,
-        "source": "python-ast",
-        "confidence": 1.0,
-        "evidence_file_id": file_record.id,
-        "evidence_uri": file_record.uri,
-        "evidence_range_json": evidence_range,
-        "payload_json": {},
-        "last_indexed_at": file_record.last_indexed_at,
-    }
-```
-
-Why:
-- containment is direct structural fact from AST
-- confidence should be high
-
----
-
-## Import extraction
-
-You should extract import facts from:
-- `ast.Import`
-- `ast.ImportFrom`
-
-### What to capture
-
-At minimum:
-- imported module names
-- imported symbol names
-- edges representing imports from the module node
-
-### Honest limitation
-
-Resolving imports to internal graph nodes perfectly is hard.
-For version 1, it is fine to store unresolved string targets.
-
-That is still useful.
-
-### Examples
-
-#### `import app.core.security`
-
-Store:
-- imported module: `app.core.security`
-
-#### `from app.models.user import User`
-
-Store:
-- imported module: `app.models.user`
-- imported symbol: `User`
-
-### Suggested strategy
-
-For module payload:
-- populate `imported_modules`
-- populate `imported_symbols`
-
-For graph edges:
-- create `imports` edges from the module node to unresolved external IDs or string-backed placeholders
-
-Example placeholder IDs:
-- `external_or_unresolved:app.core.security`
-- `external_or_unresolved:app.models.user.User`
-
-This is fine for v1.
-
----
-
-## Import extraction example
-
-```python
-import ast
-
-def extract_import_edges(repo_id: str, module_node_id: str, file_record, tree: ast.Module) -> tuple[list[dict], list[str], list[str]]:
-    edges = []
-    imported_modules = []
-    imported_symbols = []
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                imported_modules.append(alias.name)
-                edges.append({
-                    "id": f"edge:{repo_id}:imports:{module_node_id}->{alias.name}:{getattr(node, 'lineno', 0)}",
-                    "repo_id": repo_id,
-                    "kind": "imports",
-                    "from_id": module_node_id,
-                    "to_id": f"external_or_unresolved:{alias.name}",
-                    "source": "python-ast",
-                    "confidence": 0.8,
-                    "evidence_file_id": file_record.id,
-                    "evidence_uri": file_record.uri,
-                    "evidence_range_json": make_range(node),
-                    "payload_json": {"alias": alias.asname},
-                    "last_indexed_at": file_record.last_indexed_at,
-                })
-
-        elif isinstance(node, ast.ImportFrom):
-            module_name = node.module or ""
-            if module_name:
-                imported_modules.append(module_name)
-
-            for alias in node.names:
-                imported_symbols.append(alias.name)
-                target = f"{module_name}.{alias.name}" if module_name else alias.name
-                edges.append({
-                    "id": f"edge:{repo_id}:imports:{module_node_id}->{target}:{getattr(node, 'lineno', 0)}",
-                    "repo_id": repo_id,
-                    "kind": "imports",
-                    "from_id": module_node_id,
-                    "to_id": f"external_or_unresolved:{target}",
-                    "source": "python-ast",
-                    "confidence": 0.8,
-                    "evidence_file_id": file_record.id,
-                    "evidence_uri": file_record.uri,
-                    "evidence_range_json": make_range(node),
-                    "payload_json": {"alias": alias.asname, "module": module_name, "level": node.level},
-                    "last_indexed_at": file_record.last_indexed_at,
-                })
-
-    return edges, imported_modules, imported_symbols
-```
-
----
-
-## Inheritance extraction
-
-Every class with declared bases should produce `inherits` edges.
-
-### What to capture
-
-- string form of each base class expression
-- edge from class node to unresolved base placeholder or resolved target later
-
-### Good enough for v1
-
-Use `ast.unparse(base)` and store the base name string.
-
-Do not block on perfect base resolution.
-
-### Example
-
-```python
-class AuthService(BaseService, LoggingMixin):
-    ...
-```
-
-Capture:
-- `BaseService`
-- `LoggingMixin`
-
-Create edges to:
-- `unresolved_base:BaseService`
-- `unresolved_base:LoggingMixin`
-
----
-
-## Inheritance extraction example
-
-```python
-import ast
-
-def extract_inherits_edges(repo_id: str, class_node_id: str, file_record, node: ast.ClassDef) -> list[dict]:
-    edges = []
-
-    for base in node.bases:
-        base_name = ast.unparse(base)
-        edges.append({
-            "id": f"edge:{repo_id}:inherits:{class_node_id}->{base_name}",
-            "repo_id": repo_id,
-            "kind": "inherits",
-            "from_id": class_node_id,
-            "to_id": f"unresolved_base:{base_name}",
-            "source": "python-ast",
-            "confidence": 0.75,
-            "evidence_file_id": file_record.id,
-            "evidence_uri": file_record.uri,
-            "evidence_range_json": make_range(base),
-            "payload_json": {"base_name": base_name},
-            "last_indexed_at": file_record.last_indexed_at,
-        })
-
-    return edges
-```
-
----
-
-## Semantic hash strategy
-
-Phase 3 should start leaving room for meaningful semantic hashes, even if the first implementation is simple.
-
-### Good enough first implementation
-
-For modules:
-- use file content hash for now
-
-For classes:
-- hash a normalized object of:
-  - kind
-  - qualified name
-  - base names
-  - decorators
-
-For callables:
-- hash a normalized object of:
-  - kind
-  - qualified name
-  - parameter names
-  - parameter kinds
-  - return annotation
-  - decorators
-  - async flag
-
-### Why this matters
-
-Later you want to tell the difference between:
-- formatting change
-- docstring change
-- signature change
-- structural change
-
-Do not aim for perfection now.
-Aim for useful signal.
-
----
-
-## Content hash strategy for declarations
-
-You have two options.
-
-## Option A: Leave declaration `content_hash` blank for now
-
-Pros:
-- simpler
-- less work
-
-Cons:
-- weaker incremental precision
-
-## Option B: Slice declaration source from file text using `range`
-
-Pros:
-- more precise
-
-Cons:
-- slightly more work
-
-My recommendation:
-- if slicing is easy, do it
-- otherwise leave a TODO and do it in a later phase
-
-Do not block this phase on perfect declaration slicing.
-
----
-
-## AST orchestration pipeline
-
-Create one orchestrator that processes one file at a time.
-
-Recommended flow:
-
-1. load file text
-2. parse AST
-3. create module node
-4. extract imports
-5. extract top-level classes
-6. extract top-level functions
-7. for each class, extract methods
-8. create `contains` edges
-9. create `inherits` edges
-10. update module payload with imported modules and top-level symbol IDs
-11. persist nodes and edges
-
-### Important rule
-
-Keep file-level extraction isolated.
-If one file fails to parse, you should be able to report that cleanly.
-
----
-
-## Example pipeline sketch
-
-```python
-import ast
-from pathlib import Path
-
-def parse_python_file(file_path: Path) -> ast.Module:
-    text = file_path.read_text(encoding="utf-8")
-    return ast.parse(text)
-
-def process_file(repo_id: str, file_record) -> tuple[list[dict], list[dict]]:
-    file_path = Path(file_record.uri.replace("file://", ""))
-    text = file_path.read_text(encoding="utf-8")
-    tree = ast.parse(text)
-
-    nodes = []
-    edges = []
-
-    module_node = extract_module_node(repo_id, file_record, tree, text)
-    nodes.append(module_node)
-
-    import_edges, imported_modules, imported_symbols = extract_import_edges(repo_id, module_node["id"], file_record, tree)
-    edges.extend(import_edges)
-
-    top_level_symbol_ids = []
-
-    for item in tree.body:
-        if isinstance(item, ast.ClassDef):
-            class_node = extract_class_node(repo_id, file_record, module_node["id"], file_record.module_path, item)
-            nodes.append(class_node)
-            top_level_symbol_ids.append(class_node["id"])
-            edges.append(make_contains_edge(repo_id, module_node["id"], class_node["id"], file_record, make_range(item)))
-            edges.extend(extract_inherits_edges(repo_id, class_node["id"], file_record, item))
-
-            method_ids = []
-            for child in item.body:
-                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    method_node = extract_callable_node(
-                        repo_id=repo_id,
-                        file_record=file_record,
-                        parent_id=class_node["id"],
-                        parent_qualified_name=class_node["qualified_name"],
-                        node=child,
-                        is_method=True,
-                    )
-                    nodes.append(method_node)
-                    method_ids.append(method_node["id"])
-                    edges.append(make_contains_edge(repo_id, class_node["id"], method_node["id"], file_record, make_range(child)))
+- [ ] every parsed Python file produces exactly one persisted-ready module node
 
-            class_node["payload_json"]["method_ids"] = method_ids
+***
 
-        elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            callable_node = extract_callable_node(
-                repo_id=repo_id,
-                file_record=file_record,
-                parent_id=module_node["id"],
-                parent_qualified_name=file_record.module_path,
-                node=item,
-                is_method=False,
-            )
-            nodes.append(callable_node)
-            top_level_symbol_ids.append(callable_node["id"])
-            edges.append(make_contains_edge(repo_id, module_node["id"], callable_node["id"], file_record, make_range(item)))
+## Step 6 - Class Extraction
 
-    module_node["payload_json"]["imported_modules"] = sorted(set(imported_modules))
-    module_node["payload_json"]["imported_symbols"] = sorted(set(imported_symbols))
-    module_node["payload_json"]["top_level_symbol_ids"] = top_level_symbol_ids
+### File
 
-    return nodes, edges
-```
+- [ ] `src/repo_context/parsing/class_extractor.py`
 
-This is not the only implementation shape, but it shows the intended architecture.
+### Implement
 
----
+For each top-level `ast.ClassDef` in `tree.body`:
 
-## Persistence strategy
+- [ ] create one class node
+- [ ] derive class qualified name from module path plus class name
+- [ ] derive class node ID from class qualified name
+- [ ] set `parent_id` to module node ID
+- [ ] set `kind` to `class`
+- [ ] set `name` to class name
+- [ ] set `language` to `python`
+- [ ] set `uri` from `file_record.uri`
+- [ ] set `range_json` from `make_range(node)`
+- [ ] set `selection_range_json` from `make_name_selection_range(node)`
+- [ ] set `doc_summary` from `get_doc_summary(node)`
+- [ ] set `source` to `python-ast`
+- [ ] set `confidence` to `1.0`
+- [ ] set `last_indexed_at` from `file_record.last_indexed_at`
 
-This phase needs node and edge persistence helpers.
+### Required class payload
 
-Recommended functions in `storage/nodes.py`:
+- [ ] `base_names` as a list of strings produced with `ast.unparse`
+- [ ] `decorators` as a list of strings produced with `ast.unparse`
+- [ ] `method_ids` initialized as an empty list
 
-```python
-def upsert_node(conn, node) -> None:
-    ...
+### Visibility rule
 
-def upsert_nodes(conn, nodes: list) -> None:
-    ...
+- [ ] set `visibility_hint` to `private_like` if class name starts with `_`
+- [ ] otherwise set `visibility_hint` to `public`
 
-def list_nodes_for_file(conn, file_id: str) -> list:
-    ...
-```
+### Do not do
 
-Recommended functions in `storage/edges.py`:
+- [ ] do not inspect nested classes in v1
+- [ ] do not build fancy base or decorator formatting logic
 
-```python
-def upsert_edge(conn, edge) -> None:
-    ...
+### Done when
 
-def upsert_edges(conn, edges: list) -> None:
-    ...
+- [ ] every top-level class produces one persisted-ready class node
 
-def list_edges_for_repo(conn, repo_id: str) -> list:
-    ...
-```
+***
 
-### Optional cleanup in this phase
+## Step 7 - Callable Extraction
 
-You may also add:
+### File
 
-```python
-def delete_nodes_for_file(conn, file_id: str) -> None:
-    ...
+- [ ] `src/repo_context/parsing/callable_extractor.py`
 
-def delete_edges_for_file(conn, file_id: str) -> None:
-    ...
-```
+### Implement
 
-That becomes useful once reindexing the same file repeatedly.
+Support these mappings:
 
----
+- [ ] top-level `FunctionDef` -> `function`
+- [ ] top-level `AsyncFunctionDef` -> `async_function`
+- [ ] direct class `FunctionDef` -> `method`
+- [ ] direct class `AsyncFunctionDef` -> `async_method`
 
-## Failure handling
+For each callable node:
 
-AST parsing can fail.
+- [ ] derive `kind` exactly from async status and method status
+- [ ] derive `qualified_name` using shared naming helpers
+- [ ] derive node ID using shared naming helpers
+- [ ] set `parent_id` to module node ID for top-level callables
+- [ ] set `parent_id` to class node ID for methods
+- [ ] set `name` to callable name
+- [ ] set `language` to `python`
+- [ ] set `uri` from `file_record.uri`
+- [ ] set `range_json` from `make_range(node)`
+- [ ] set `selection_range_json` from `make_name_selection_range(node)`
+- [ ] set `doc_summary` from `get_doc_summary(node)`
+- [ ] set `source` to `python-ast`
+- [ ] set `confidence` to `1.0`
+- [ ] set `last_indexed_at` from `file_record.last_indexed_at`
 
-Examples:
-- syntax errors
-- weird encoding issues
-- partially broken files
+### Required callable payload
 
-You need a policy.
+- [ ] `parameters`
+- [ ] `return_annotation`
+- [ ] `decorators`
+- [ ] `is_async`
+- [ ] `is_method`
+- [ ] `is_generator`
 
-## Recommended v1 policy
+### Generator rule
 
-- fail the file cleanly
-- record an extraction error
-- continue with the rest of the repo if possible
+- [ ] set `is_generator` to `True` if `ast.walk(node)` contains `ast.Yield` or `ast.YieldFrom`
+- [ ] otherwise set `is_generator` to `False`
 
-Why:
-- one broken file should not always destroy the whole repo index
-- but the failure should be visible
+### Visibility rule
 
-Do not silently swallow parse errors.
+- [ ] if callable name starts with `_` and is not a dunder, set `visibility_hint` to `private_like`
+- [ ] otherwise set `visibility_hint` to `public`
 
----
+### Do not do
 
-## Test plan
+- [ ] do not create nodes for nested functions
+- [ ] do not create extra callable kinds in v1
 
-This phase needs strong fixture-based tests.
+### Done when
 
-## `test_module_extraction`
+- [ ] top-level functions and direct methods both produce correct persisted-ready callable nodes
 
-Verify:
-- one module node per file
-- correct module qualified name
-- correct kind
-- correct parent rules
+***
 
-## `test_class_extraction`
+## Step 8 - Parameter Extraction
 
-Verify:
-- class nodes are created
-- base names are captured
-- decorators are captured
-- class parent is the module
+### File
 
-## `test_callable_extraction_top_level`
+- [ ] `src/repo_context/parsing/callable_extractor.py`
 
-Verify:
-- top-level functions become `function` or `async_function`
-- qualified names are correct
+### Implement
 
-## `test_callable_extraction_methods`
+Extract parameters from `ast.arguments`.
 
-Verify:
-- methods become `method` or `async_method`
-- parent is the class
-- qualified names are correct
+Each parameter record must include:
 
-## `test_contains_edges`
+- [ ] `name`
+- [ ] `kind`
+- [ ] `annotation`
+- [ ] `default_value_hint`
 
-Verify:
-- module -> class
-- module -> top-level function
-- class -> method
+### Exact supported kinds
 
-## `test_import_edges`
+- [ ] positional-only args -> `positional_only`
+- [ ] regular args -> `positional_or_keyword`
+- [ ] `*args` -> `var_positional`
+- [ ] keyword-only args -> `keyword_only`
+- [ ] `**kwargs` -> `var_keyword`
 
-Verify:
-- `import` and `from import` forms are captured
-- module payload gets imported modules and imported symbols
+### Exact annotation behavior
 
-## `test_inherits_edges`
+- [ ] if annotation exists, convert using `ast.unparse`
+- [ ] if annotation does not exist, store `None`
 
-Verify:
-- declared bases become `inherits` edges
+### Exact default behavior
 
-## `test_doc_summary_extraction`
+- [ ] in v1, `default_value_hint` may always be `None`
+- [ ] do not pretend defaults are mapped if they are not
 
-Verify:
-- doc summary comes from docstrings when present
+### Return annotation behavior
 
-## `test_range_extraction`
+- [ ] if callable return annotation exists, convert using `ast.unparse`
+- [ ] otherwise store `None`
 
-Verify:
-- ranges are generated
-- lines are converted to zero-based form
+### Do not do
 
-## `test_nested_functions_are_ignored`
+- [ ] do not overbuild parameter-default alignment in this phase
 
-If you choose to ignore nested functions, test that explicitly.
+### Done when
 
----
+- [ ] every callable payload contains consistent structured parameter data
 
-## Suggested test fixtures
+***
 
-Create tiny focused fixture repos like these:
+## Step 9 - Contains Edge Creation
 
-```text
-tests/fixtures/
-  simple_package/
-    app/
-      __init__.py
-      services/
-        auth.py
+### File
 
-  inheritance_case/
-    app/
-      services.py
+- [ ] `src/repo_context/parsing/pipeline.py` or shared helper used by pipeline
 
-  async_case/
-    app/
-      worker.py
+### Implement
 
-  decorators_case/
-    app/
-      models.py
+Create `contains` edges for these exact relationships:
 
-  nested_functions_case/
-    app/
-      helpers.py
-```
+- [ ] module -> class
+- [ ] module -> top-level callable
+- [ ] class -> direct method
 
-### Example fixture content
+### Required edge fields
 
-#### `auth.py`
+- [ ] deterministic edge ID
+- [ ] `repo_id`
+- [ ] `kind="contains"`
+- [ ] `from_id`
+- [ ] `to_id`
+- [ ] `source="python-ast"`
+- [ ] `confidence=1.0`
+- [ ] `evidence_file_id`
+- [ ] `evidence_uri`
+- [ ] `evidence_range_json`
+- [ ] `payload_json`
+- [ ] `last_indexed_at`
 
-```python
-"""Authentication services."""
+### Do not do
 
-from app.models.user import User
+- [ ] do not infer containment beyond direct AST structure
 
-class AuthService(BaseService):
-    """Main auth service."""
+### Done when
 
-    def login(self, user_id: str, password: str) -> Session:
-        """Authenticate and return a session."""
-        return create_session(user_id)
+- [ ] every structural parent-child relation in scope is represented as a `contains` edge
 
-def build_auth_payload(user_id: str) -> dict:
-    return {"user_id": user_id}
-```
+***
 
-This one file already gives you:
-- module docstring
-- import
-- class
-- inheritance
-- method
-- top-level function
-- annotations
+## Step 10 - Import Extraction
 
-That is a perfect starter fixture.
+### File
 
----
+- [ ] `src/repo_context/parsing/import_extractor.py`
 
-## Acceptance checklist
+### Implement
 
-Phase 3 is done when all of this is true:
+Walk the AST and process all:
 
-- Python files can be parsed into AST safely.
-- Each Python file becomes one module node.
-- Top-level classes become class nodes.
-- Top-level functions become callable nodes.
-- Methods become method nodes.
-- Async callables are classified correctly.
-- Qualified names are deterministic.
-- `contains` edges exist.
-- `imports` edges exist.
-- `inherits` edges exist.
-- Basic doc summaries are extracted.
-- Ranges and selection ranges are stored.
-- Nodes and edges persist to SQLite.
-- Broken files fail cleanly.
-- Tests pass.
-- No LSP integration exists yet.
-- No `references` edges exist yet.
-- No MCP tools exist yet.
+- [ ] `ast.Import`
+- [ ] `ast.ImportFrom`
 
----
+### Exact import collection behavior
 
-## Common mistakes to avoid
+For `ast.Import`:
+- [ ] append each `alias.name` to module payload `imported_modules`
+- [ ] create one `imports` edge per imported module
 
-### Mistake 1: Trying to make AST semantic
+For `ast.ImportFrom`:
+- [ ] if `node.module` exists, append it to module payload `imported_modules`
+- [ ] append each imported symbol name to module payload `imported_symbols`
+- [ ] create one `imports` edge per imported symbol
 
-AST tells you structure, not full meaning.
-Do not try to force perfect symbol resolution here.
+### Exact unresolved target rules
 
-### Mistake 2: Inconsistent qualified names
+For plain imports:
+- [ ] use `external_or_unresolved:{module_name}`
 
-If naming rules vary across extractors, the graph becomes unreliable.
+For from imports:
+- [ ] if module exists, use `external_or_unresolved:{module_name}.{symbol_name}`
+- [ ] if module does not exist, use `external_or_unresolved:{symbol_name}`
 
-### Mistake 3: Storing unresolved imports as if they were resolved internal symbols
+### Required imports edge fields
 
-Be honest.
-Use placeholders or payload metadata.
+- [ ] deterministic edge ID
+- [ ] `kind="imports"`
+- [ ] `from_id` = module node ID
+- [ ] unresolved `to_id`
+- [ ] `source="python-ast"`
+- [ ] `confidence=0.8`
+- [ ] evidence metadata
+- [ ] payload containing alias and import metadata
 
-### Mistake 4: Mixing extraction and persistence too tightly
+### Relative import behavior
 
-Keep AST extraction functions mostly pure.
-Let orchestration or storage layers handle DB writes.
+- [ ] store `level` from `ImportFrom.level` in payload
+- [ ] store `module` from `ImportFrom.module` in payload
 
-### Mistake 5: Supporting nested functions halfway
+### Do not do
 
-Either support them properly or ignore them explicitly for v1.
+- [ ] do not resolve imports to internal graph nodes in this phase
+- [ ] do not pretend unresolved imports are resolved
 
-### Mistake 6: Skipping range normalization
+### Done when
 
-If line numbers are inconsistent now, LSP mapping later will hurt.
+- [ ] imports are captured in module payload and as `imports` edges
 
----
+***
 
-## What phase 4 will depend on
+## Step 11 - Inheritance Extraction
 
-The next phase will assume phase 3 already provides:
+### File
 
-- persisted nodes
-- persisted structural edges
-- reliable qualified names
-- parent-child hierarchy
-- module, class, and callable layers
+- [ ] `src/repo_context/parsing/inheritance_extractor.py`
 
-Phase 4 will focus on making graph storage and queries solid.
-If extraction output is unstable, phase 4 will become cleanup work instead of progress.
+### Implement
 
----
+For each top-level class node:
 
-## Final guidance
+- [ ] iterate over `node.bases`
+- [ ] convert each base to string using `ast.unparse`
+- [ ] create one `inherits` edge per base
 
-This phase is where the project becomes real.
+### Exact unresolved target rule
 
-Before phase 3, you only know which files exist.
-After phase 3, you know the structural shape of the repository.
+- [ ] `to_id` must be `unresolved_base:{base_name}`
 
-That is the big jump.
+### Required inherits edge fields
 
-Keep the AST layer honest, deterministic, and boring:
+- [ ] deterministic edge ID
+- [ ] `kind="inherits"`
+- [ ] `from_id` = class node ID
+- [ ] unresolved `to_id`
+- [ ] `source="python-ast"`
+- [ ] `confidence=0.75`
+- [ ] evidence metadata
+- [ ] payload with `base_name`
+- [ ] `last_indexed_at`
 
-- extract what Python AST can clearly tell you
-- store unresolved things explicitly
-- do not overpromise semantics
-- do not jump ahead to LSP
+### Do not do
 
-If this phase is solid, the next layers become much easier.
-```
+- [ ] do not attempt full inheritance resolution in this phase
+
+### Done when
+
+- [ ] every declared base class produces one `inherits` edge
+
+***
+
+## Step 12 - Semantic Hashes
+
+### Files
+
+- [ ] extractor modules or one shared helper module
+
+### Implement
+
+### Module semantic hash
+- [ ] set equal to `file_record.content_hash` in v1
+
+### Class semantic hash
+Hash a normalized object containing:
+- [ ] `kind`
+- [ ] `qualified_name`
+- [ ] `base_names`
+- [ ] `decorators`
+
+### Callable semantic hash
+Hash a normalized object containing:
+- [ ] `kind`
+- [ ] `qualified_name`
+- [ ] parameter names
+- [ ] parameter kinds
+- [ ] return annotation
+- [ ] decorators
+- [ ] async flag
+
+### Do not do
+
+- [ ] do not leave semantic hash undefined
+- [ ] do not block phase 3 trying to perfect this
+
+### Done when
+
+- [ ] semantic hashes are deterministic and structurally meaningful
+
+***
+
+## Step 13 - Declaration Content Hash Policy
+
+### Files
+
+- [ ] extractor modules or one shared helper module
+
+### Implement
+
+Choose one consistent policy:
+
+Policy A:
+- [ ] set declaration `content_hash` to empty string for class and callable nodes
+
+Policy B:
+- [ ] slice source text for the declaration using extracted range
+- [ ] hash the sliced declaration text
+- [ ] store the result as declaration `content_hash`
+
+### Required rule
+
+- [ ] choose one policy and apply it consistently to all declaration nodes in this phase
+
+### Do not do
+
+- [ ] do not mix policies unpredictably
+- [ ] do not fabricate content hashes
+
+### Done when
+
+- [ ] declaration content hash behavior is explicit and consistent
+
+***
+
+## Step 14 - Per-File Pipeline
+
+### File
+
+- [ ] `src/repo_context/parsing/pipeline.py`
+
+### Implement
+
+For each Python file record, execute these exact steps in order:
+
+- [ ] load file text
+- [ ] parse AST
+- [ ] create module node
+- [ ] extract import edges and import payload data
+- [ ] extract top-level class nodes
+- [ ] for each class node, create module -> class `contains` edge
+- [ ] for each class node, extract `inherits` edges
+- [ ] for each class body direct callable, extract method node
+- [ ] for each method node, create class -> method `contains` edge
+- [ ] extract top-level callable nodes
+- [ ] for each top-level callable node, create module -> callable `contains` edge
+- [ ] update class payload `method_ids`
+- [ ] update module payload `imported_modules`
+- [ ] update module payload `imported_symbols`
+- [ ] update module payload `top_level_symbol_ids`
+- [ ] persist all nodes
+- [ ] persist all edges
+
+### Exact isolation rule
+
+- [ ] one file must be processable independently of every other file
+- [ ] one file failure must not prevent other files from being processed
+
+### Do not do
+
+- [ ] do not process nested functions
+- [ ] do not mix repo-wide semantic resolution into this pipeline
+
+### Done when
+
+- [ ] one file run yields complete structural output for that file only
+
+***
+
+## Step 15 - Node Persistence
+
+### File
+
+- [ ] `src/repo_context/storage/nodes.py`
+
+### Implement
+
+- [ ] `upsert_node(conn, node)`
+- [ ] `upsert_nodes(conn, nodes)`
+- [ ] `list_nodes_for_file(conn, file_id)`
+
+Optional:
+- [ ] `delete_nodes_for_file(conn, file_id)`
+
+### Exact persistence behavior
+
+- [ ] use the existing database schema style from earlier phases
+- [ ] insert new nodes
+- [ ] update existing nodes by stable ID
+- [ ] preserve JSON serialization consistency with existing project code
+
+### Do not do
+
+- [ ] do not change the schema style established by earlier phases
+- [ ] do not make storage functions depend on AST internals
+
+### Done when
+
+- [ ] nodes can be inserted, updated, and listed for one file consistently
+
+***
+
+## Step 16 - Edge Persistence
+
+### File
+
+- [ ] `src/repo_context/storage/edges.py`
+
+### Implement
+
+- [ ] `upsert_edge(conn, edge)`
+- [ ] `upsert_edges(conn, edges)`
+- [ ] `list_edges_for_repo(conn, repo_id)`
+
+Optional:
+- [ ] `delete_edges_for_file(conn, file_id)`
+
+### Exact persistence behavior
+
+- [ ] use the existing database schema style from earlier phases
+- [ ] insert new edges
+- [ ] update existing edges by stable ID
+- [ ] preserve JSON serialization consistency with existing project code
+
+### Do not do
+
+- [ ] do not change the schema style established by earlier phases
+- [ ] do not make storage functions depend on AST internals
+
+### Done when
+
+- [ ] edges can be inserted, updated, and listed consistently
+
+***
+
+## Step 17 - Failure Handling
+
+### File
+
+- [ ] `src/repo_context/parsing/pipeline.py`
+- [ ] any existing result-reporting or run-reporting code already used by the project
+
+### Implement
+
+When a file cannot be read or parsed:
+
+- [ ] mark that file as failed
+- [ ] record why it failed
+- [ ] continue processing the remaining files if possible
+
+### Required behavior
+
+- [ ] failure must be visible
+- [ ] failure must not be silently swallowed
+- [ ] one broken file must not destroy the whole repo run by default
+
+### Do not do
+
+- [ ] do not silently skip broken files
+
+### Done when
+
+- [ ] the indexing run can finish with partial success and visible failures
+
+***
+
+## Step 18 - Test Fixtures
+
+### Files to create
+
+Create fixture repos under `tests/fixtures/`.
+
+Minimum fixture set:
+
+- [ ] `tests/fixtures/simple_package/`
+- [ ] `tests/fixtures/inheritance_case/`
+- [ ] `tests/fixtures/async_case/`
+- [ ] `tests/fixtures/decorators_case/`
+- [ ] `tests/fixtures/nested_functions_case/`
+
+### Fixture requirements
+
+At least one fixture must include:
+
+- [ ] module docstring
+- [ ] import statement
+- [ ] top-level class
+- [ ] declared base class
+- [ ] direct method
+- [ ] top-level function
+- [ ] annotations
+
+### Do not do
+
+- [ ] do not use large real repos as the main test input
+- [ ] do not hide many cases in one giant fixture
+
+### Done when
+
+- [ ] fixtures are small, focused, and deterministic
+
+***
+
+## Step 19 - Tests
+
+### Files to create or modify
+
+- [ ] phase 3 tests under `tests/`
+
+### Implement these tests
+
+- [ ] `test_module_extraction`
+- [ ] `test_class_extraction`
+- [ ] `test_callable_extraction_top_level`
+- [ ] `test_callable_extraction_methods`
+- [ ] `test_contains_edges`
+- [ ] `test_import_edges`
+- [ ] `test_inherits_edges`
+- [ ] `test_doc_summary_extraction`
+- [ ] `test_range_extraction`
+- [ ] `test_nested_functions_are_ignored`
+
+### Exact test assertions
+
+#### Module extraction
+- [ ] one module node is created per Python file
+- [ ] module kind is `module`
+- [ ] module qualified name matches `module_path`
+- [ ] module parent is `None`
+
+#### Class extraction
+- [ ] class nodes are created for top-level classes only
+- [ ] class base names are captured
+- [ ] class decorators are captured
+- [ ] class parent is module node ID
+
+#### Callable extraction
+- [ ] top-level sync functions become `function`
+- [ ] top-level async functions become `async_function`
+- [ ] direct class sync methods become `method`
+- [ ] direct class async methods become `async_method`
+- [ ] qualified names are correct
+
+#### Contains edges
+- [ ] module -> class exists
+- [ ] module -> top-level callable exists
+- [ ] class -> method exists
+
+#### Import edges
+- [ ] plain imports are captured
+- [ ] from imports are captured
+- [ ] imported modules appear in module payload
+- [ ] imported symbols appear in module payload
+
+#### Inherits edges
+- [ ] each declared base creates one `inherits` edge
+
+#### Doc summary
+- [ ] first meaningful doc chunk is extracted
+- [ ] missing docstring yields `None`
+
+#### Range extraction
+- [ ] line numbers are zero-based
+- [ ] range and selection range exist where expected
+
+#### Nested functions
+- [ ] nested functions do not produce nodes
+- [ ] nested functions do not produce edges
+
+### Done when
+
+- [ ] all required phase 3 extraction behavior is covered by tests
+
+***
+
+## Step 20 - Final Verification
+
+Before marking phase 3 complete, verify all of the following:
+
+- [ ] Python files parse safely into AST
+- [ ] each Python file becomes one module node
+- [ ] top-level classes become class nodes
+- [ ] top-level functions become callable nodes
+- [ ] direct class methods become method nodes
+- [ ] async callables are classified correctly
+- [ ] qualified names are deterministic
+- [ ] `contains` edges exist
+- [ ] `imports` edges exist
+- [ ] `inherits` edges exist
+- [ ] doc summaries are extracted
+- [ ] ranges are stored
+- [ ] selection ranges are stored
+- [ ] nodes persist to SQLite
+- [ ] edges persist to SQLite
+- [ ] broken files fail cleanly
+- [ ] tests pass
+- [ ] no LSP integration exists
+- [ ] no `references` edges exist
+- [ ] no MCP tools exist
+
+Do not mark this phase done until every box above is true.
+
+***
+
+## Required Execution Order
+
+Implement in this order and do not skip ahead:
+
+- [ ] Step 1 AST loader
+- [ ] Step 2 naming helpers
+- [ ] Step 3 range helpers
+- [ ] Step 4 docstring helper
+- [ ] Step 5 module extraction
+- [ ] Step 6 class extraction
+- [ ] Step 7 callable extraction
+- [ ] Step 8 parameter extraction
+- [ ] Step 9 contains edge creation
+- [ ] Step 10 import extraction
+- [ ] Step 11 inheritance extraction
+- [ ] Step 12 semantic hashes
+- [ ] Step 13 declaration content hash policy
+- [ ] Step 14 per-file pipeline
+- [ ] Step 15 node persistence
+- [ ] Step 16 edge persistence
+- [ ] Step 17 failure handling
+- [ ] Step 18 test fixtures
+- [ ] Step 19 tests
+- [ ] Step 20 final verification
+
+***
+
+## Phase 3 Done Definition
+
+Phase 3 is complete only when all of these are true:
+
+- [ ] phase 1 and phase 2 contracts remain intact
+- [ ] Python files discovered in phase 2 can be parsed in phase 3
+- [ ] structural symbols are extracted deterministically
+- [ ] structural edges are extracted deterministically
+- [ ] unresolved imports and bases remain explicit
+- [ ] nodes and edges are persisted consistently with the existing project style
+- [ ] broken files fail visibly without collapsing the full run
+- [ ] tests pass
+- [ ] no out-of-scope features were added
+
+If you want, next I can do the same rigid no-interpretation rewrite for phase 4 too, so the whole plan stays in one consistent format.
