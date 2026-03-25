@@ -1,881 +1,851 @@
-```md
-# 08-mcp-server.md
+Yes — this phase should be strict as hell, because MCP is where sloppy contracts start poisoning the agent loop. MCP’s own tool spec emphasizes structured inputs, structured outputs, and distinct handling for protocol errors versus tool execution errors, which is exactly why your server should stay narrow and deterministic. [modelcontextprotocol](https://modelcontextprotocol.io/specification/draft/server/tools)
 
-## Purpose
+# 08 MCP Server - Exact Implementation Checklist
 
-This phase builds the MCP server layer.
+## Objective
 
-The MCP server is the deterministic tool interface that exposes the repository graph, symbol context, reference data, and risk engine to an AI agent. It is not the place where natural-language reasoning should live. It is the place where structured tools live.
+Implement phase 8 of the repository indexing pipeline.
 
-In plain language:
+Phase 8 must expose the repository graph, symbol context, reference data, and risk engine through a deterministic MCP server with strict tool contracts.
 
-- the graph stores repository truth
-- the context builder packages local symbol context
-- the LSP layer enriches references
-- the risk engine computes risk facts
-- the MCP server exposes all of that through clear tool contracts
-
-This phase is where the project becomes agent-usable.
-
----
-
-## Why this phase matters
-
-Without MCP, all your work still lives as internal modules and CLI commands.
-
-That is fine for local debugging, but not enough for an AI-assisted workflow where an agent should be able to ask deterministic questions like:
-
-- resolve this symbol
-- show me context for this symbol
-- refresh references for this symbol
-- assess the risk of changing this target set
-
-The MCP server is the bridge between your structured code intelligence system and the agent.
-
-If this layer is sloppy:
-- tool contracts become vague
-- outputs become inconsistent
-- the agent starts guessing
-- server logic leaks into prompt logic
-- debugging gets painful
-
-So this phase is about making the system consumable and stable.
-
----
-
-## Phase goals
-
-By the end of this phase, you should have:
-
+Phase 8 must provide:
 - an MCP server process
-- clear tool registration
-- machine-friendly tool input schemas
-- machine-friendly tool output schemas
-- tools for symbol lookup
-- tools for symbol context retrieval
-- tools for reference refresh and lookup
+- tool registration
+- strict input schemas
+- strict output schemas
+- structured error responses
+- tools for symbol resolution
+- tools for context retrieval
+- tools for reference refresh and retrieval
 - tools for risk analysis
-- deterministic error responses
-- a CLI or launch entry point for the MCP server
-- tests for MCP tool behavior
+- a CLI launch entry point
+- tests for tool behavior
 
----
-
-## Phase non-goals
-
-Do **not** do any of this in phase 8:
-
-- making the MCP server explain results in natural language
-- embedding an LLM inside the server
-- agent planning logic inside the server
+Phase 8 must not provide:
+- natural-language explanation generation
+- embedded LLM reasoning inside the server
+- agent planning logic
 - autonomous code edits
-- workflow orchestration UI
-- watch mode unless you already need it badly
+- UI workflow orchestration
+- hidden auto-refresh behavior
+- watch mode unless already needed elsewhere
 
-This phase is tool exposure, not agent personality.
+***
 
----
+## Consistency Rules
 
-## What already exists from previous phases
+These rules are mandatory.
 
-This phase assumes you already have:
+- [ ] Reuse the existing phase 1 through phase 7 services, models, and query helpers.
+- [ ] Do not reimplement graph logic inside MCP handlers.
+- [ ] Do not reimplement context assembly inside MCP handlers.
+- [ ] Do not reimplement reference enrichment inside MCP handlers.
+- [ ] Do not reimplement risk logic inside MCP handlers.
+- [ ] Keep tools narrow.
+- [ ] Keep inputs explicit and validated.
+- [ ] Keep outputs stable and machine-friendly.
+- [ ] Keep errors structured and machine-readable.
+- [ ] Keep the MCP server deterministic and boring.
 
-- repository scanning
-- AST extraction
-- graph storage
-- context building
-- LSP reference enrichment
-- risk engine
+Structured schemas and explicit tool contracts improve MCP consistency because the client can reason about expected inputs and outputs safely instead of guessing. [zilliz](https://zilliz.com/ai-faq/how-does-mcp-maintain-consistency-across-modeltool-interactions)
 
-The MCP server should expose these capabilities.
-It should not reimplement them.
+***
 
----
+## Required Inputs
 
-## Core design principle
+Phase 8 must consume these existing inputs:
 
-The MCP server should compute facts, not prose.
+- [ ] graph storage and query helpers from phase 4
+- [ ] symbol context builder from phase 5
+- [ ] reference enrichment and reference queries from phase 6
+- [ ] risk engine from phase 7
+- [ ] app config and DB access from earlier phases
+- [ ] optional LSP client dependency for refresh tools
 
-That means the server should return:
-- exact fields
-- issue codes
-- counts
-- IDs
-- decisions
-- structured summaries
+Do not make the MCP layer the source of truth for any repository facts.
 
-The AI agent can then:
-- explain the result
-- revise the user-facing plan
-- ask follow-up questions
-- present safe next steps
+***
 
-This separation keeps the server cheap, testable, and predictable.
+## Required Outputs
 
----
+Phase 8 must produce these capabilities:
 
-## Recommended package structure additions
+- [ ] start an MCP server process
+- [ ] register tools cleanly
+- [ ] validate tool input
+- [ ] return stable success payloads
+- [ ] return stable structured errors
+- [ ] resolve one symbol
+- [ ] return one symbol context
+- [ ] refresh one symbol’s references
+- [ ] return stored references for one symbol
+- [ ] analyze one symbol risk
+- [ ] analyze multiple symbol risk
+- [ ] expose a CLI launch command
 
-Add these files:
+Do not add plan wrappers unless you intentionally decide to break scope.
 
-```text
-src/
-  repo_context/
-    mcp/
-      __init__.py
-      server.py
-      tools.py
-      schemas.py
-      errors.py
-      adapters.py
-```
+***
 
-### Why this split
+## Required File Layout
 
-- `server.py`: MCP server setup and registration
-- `tools.py`: tool handlers
-- `schemas.py`: input and output contracts
-- `errors.py`: consistent server-side error shapes
-- `adapters.py`: maps internal models to tool-facing payloads
+Create or extend these files:
 
-This keeps tool exposure clean and prevents server code from becoming a junk drawer.
+- [ ] `src/repo_context/mcp/__init__.py`
+- [ ] `src/repo_context/mcp/server.py`
+- [ ] `src/repo_context/mcp/tools.py`
+- [ ] `src/repo_context/mcp/schemas.py`
+- [ ] `src/repo_context/mcp/errors.py`
+- [ ] `src/repo_context/mcp/adapters.py`
 
----
+Reuse existing files if they already exist.
 
-## Tool design principles
+Do not create a second server package with overlapping responsibility.
 
-### Principle 1: Tool names should be obvious
+***
 
-A tool name should make its purpose clear without reading a paragraph.
+## Tool Set
 
-### Principle 2: Inputs should be strict
+Implement exactly these version 1 tools:
 
-Tool input should be explicit and validated.
-Do not accept mushy input blobs.
+- [ ] `resolve_symbol`
+- [ ] `get_symbol_context`
+- [ ] `refresh_symbol_references`
+- [ ] `get_symbol_references`
+- [ ] `analyze_symbol_risk`
+- [ ] `analyze_target_set_risk`
 
-### Principle 3: Outputs should be stable
+Do not add one giant catch-all tool.
 
-The same request against the same graph state should return the same structure.
+***
 
-### Principle 4: Keep tools narrow
+## Shared Result Contract
 
-One tool should do one job well.
-Do not make a giant “do everything” tool.
+All tool handlers must use one stable top-level result shape.
 
-### Principle 5: Errors should be structured
+### Success shape
 
-Not found, stale context, missing references, and invalid input should all have explicit error responses.
+- [ ] top-level `ok = true`
+- [ ] top-level `data` object exists
+- [ ] top-level `error = null` or omitted consistently according to project style
 
----
+### Error shape
 
-## Suggested MCP tools
+- [ ] top-level `ok = false`
+- [ ] top-level `error` object exists
+- [ ] top-level `data = null` or omitted consistently according to project style
 
-Version 1 only needs a small set.
+### Required error object fields
 
-Recommended tools:
+- [ ] `code`
+- [ ] `message`
+- [ ] `details`
 
-- `resolve_symbol`
-- `get_symbol_context`
-- `refresh_symbol_references`
-- `get_symbol_references`
-- `analyze_symbol_risk`
-- `analyze_target_set_risk`
+This matches MCP guidance that tool execution problems should be returned as structured tool-facing errors rather than random strings. [modelcontextprotocol](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
 
-That is enough for a strong first version.
+***
 
-You can add plan-specific wrappers later if needed.
+## Error Codes
 
----
+Use exactly these server-side tool error codes in phase 8:
 
-## Tool 1: `resolve_symbol`
+- [ ] `invalid_input`
+- [ ] `symbol_not_found`
+- [ ] `ambiguous_symbol`
+- [ ] `references_unavailable`
+- [ ] `lsp_failure`
+- [ ] `stale_context`
+- [ ] `internal_error`
 
-### Purpose
+Do not invent many extra codes unless strictly necessary.
 
-Resolve a symbol from a human-friendly identifier into a stable internal symbol.
+***
 
-### Why this tool matters
+## Step 1 - MCP Schemas
 
-Agents often start with:
-- a qualified name
-- maybe a kind
-- maybe partial user intent
+### File
 
-This tool gives them a deterministic symbol handle to use in later tool calls.
+- [ ] `src/repo_context/mcp/schemas.py`
 
-### Recommended input
+### Implement
 
-```json
-{
-  "repo_id": "repo:project",
-  "qualified_name": "app.services.auth.AuthService.login",
-  "kind": "method"
-}
-```
+Define explicit input and output contracts for all tools.
 
-### Recommended output
+### Required input contracts
 
-```json
-{
-  "symbol": {
-    "id": "sym:repo:project:method:app.services.auth.AuthService.login",
-    "qualified_name": "app.services.auth.AuthService.login",
-    "kind": "method",
-    "file_id": "file:app/services/auth.py",
-    "file_path": "app/services/auth.py",
-    "module_path": "app.services.auth"
-  }
-}
-```
+- [ ] `ResolveSymbolInput`
+- [ ] `GetSymbolContextInput`
+- [ ] `RefreshSymbolReferencesInput`
+- [ ] `GetSymbolReferencesInput`
+- [ ] `AnalyzeSymbolRiskInput`
+- [ ] `AnalyzeTargetSetRiskInput`
 
-### Error cases
+### Required shared output contract
 
-- symbol not found
-- ambiguous lookup if you allow kind-less lookup
+- [ ] one shared tool result wrapper, such as `ToolResult`
 
-If ambiguous, return a structured ambiguity response.
-Do not silently guess.
+### Exact input fields
 
----
+#### `ResolveSymbolInput`
+- [ ] `repo_id`
+- [ ] `qualified_name`
+- [ ] optional `kind`
 
-## Tool 2: `get_symbol_context`
+#### `GetSymbolContextInput`
+- [ ] `symbol_id`
 
-### Purpose
+#### `RefreshSymbolReferencesInput`
+- [ ] `symbol_id`
 
-Return the assembled symbol context for one symbol.
+#### `GetSymbolReferencesInput`
+- [ ] `symbol_id`
 
-### Why this tool matters
+#### `AnalyzeSymbolRiskInput`
+- [ ] `symbol_id`
 
-This is the main structured context tool for agent reasoning.
+#### `AnalyzeTargetSetRiskInput`
+- [ ] `symbol_ids`
 
-### Recommended input
+### Required validation behavior
 
-```json
-{
-  "symbol_id": "sym:repo:project:class:app.services.auth.AuthService"
-}
-```
+- [ ] required fields must be enforced
+- [ ] empty required strings must be rejected
+- [ ] `symbol_ids` must be a non-empty list of non-empty strings
+- [ ] validation failures must return `invalid_input`
 
-### Recommended output
+### Do not do
 
-```json
-{
-  "context": {
-    "focus_symbol": { "...": "..." },
-    "parent": { "...": "..." },
-    "children": [],
-    "incoming_edges": [],
-    "outgoing_edges": [],
-    "reference_summary": {
-      "reference_count": 14,
-      "referencing_file_count": 6,
-      "referencing_module_count": 4,
-      "available": true
-    },
-    "structural_summary": { "...": "..." },
-    "freshness": { "...": "..." },
-    "confidence": { "...": "..." }
-  }
-}
-```
+- [ ] do not accept freeform blob payloads
+- [ ] do not rely only on agent-side correctness
 
-### Important rule
+### Done when
 
-This tool should return structure, not generated explanation text.
+- [ ] every tool has explicit machine-friendly validated input and output shapes
 
----
+***
 
-## Tool 3: `refresh_symbol_references`
+## Step 2 - MCP Error Helpers
 
-### Purpose
+### File
 
-Refresh LSP-based references for one symbol.
+- [ ] `src/repo_context/mcp/errors.py`
 
-### Why this tool matters
+### Implement
 
-The agent may need fresh reference data before trusting risk analysis.
+Add shared helpers to build structured error results.
 
-### Recommended input
+### Required helpers
 
-```json
-{
-  "symbol_id": "sym:repo:project:method:app.services.auth.AuthService.login"
-}
-```
+- [ ] `error_result(code, message, details=None)`
+- [ ] optional small exception-to-error mapper if useful
 
-### Recommended output
+### Exact behavior
 
-```json
-{
-  "symbol_id": "sym:repo:project:method:app.services.auth.AuthService.login",
-  "reference_summary": {
-    "reference_count": 14,
-    "referencing_file_count": 6,
-    "referencing_module_count": 4,
-    "available": true,
-    "last_refreshed_at": "2026-03-23T22:40:00Z"
-  }
-}
-```
+- [ ] every error result must follow the shared result contract
+- [ ] details must be a dict or `None`
+- [ ] unknown failures must map to `internal_error`
 
-### Error cases
+### Do not do
 
-- symbol not found
-- symbol lacks usable declaration position
-- LSP request failed
-- file URI not tracked
+- [ ] do not return raw Python exception strings without wrapping
+- [ ] do not scatter ad-hoc error JSON creation across handlers
 
-These should return structured tool errors.
+### Done when
 
----
+- [ ] all tools can return consistent structured errors
 
-## Tool 4: `get_symbol_references`
+***
 
-### Purpose
+## Step 3 - MCP Adapters
 
-Return the stored incoming `references` edges targeting one symbol.
+### File
 
-### Why this tool matters
+- [ ] `src/repo_context/mcp/adapters.py`
 
-Sometimes the agent needs raw usage callers, not just counts.
+### Implement
 
-### Recommended input
+Add adapter helpers that map internal objects to tool-facing payloads.
 
-```json
-{
-  "symbol_id": "sym:repo:project:function:app.services.execute_job"
-}
-```
+### Required adapters
 
-### Recommended output
+- [ ] node -> symbol payload
+- [ ] edge -> reference payload
+- [ ] `SymbolContext` -> context payload
+- [ ] `RiskResult` -> risk payload
 
-```json
-{
-  "symbol_id": "sym:repo:project:function:app.services.execute_job",
-  "references": [
-    {
-      "from_id": "sym:repo:project:function:app.api.handle_request",
-      "to_id": "sym:repo:project:function:app.services.execute_job",
-      "evidence_file_id": "file:app/api.py",
-      "evidence_uri": "file:///workspace/project/app/api.py",
-      "confidence": 0.9
-    }
-  ],
-  "reference_summary": {
-    "reference_count": 2,
-    "referencing_file_count": 2,
-    "referencing_module_count": 2,
-    "available": true
-  }
-}
-```
+### Required symbol payload fields
 
-### Important rule
+- [ ] `id`
+- [ ] `qualified_name`
+- [ ] `kind`
+- [ ] `file_id`
+- [ ] `file_path` when derivable
+- [ ] `module_path` when derivable
 
-This tool should return stored graph data only.
-Do not auto-refresh unless you explicitly design that behavior.
+### Required reference payload fields
 
-My recommendation:
-- keep refresh as a separate tool
+- [ ] `from_id`
+- [ ] `to_id`
+- [ ] `evidence_file_id`
+- [ ] `evidence_uri`
+- [ ] `confidence`
+- [ ] evidence range if your tool contract includes it
 
-That makes freshness decisions explicit.
+### Required context payload fields
 
----
+- [ ] `focus_symbol`
+- [ ] `parent`
+- [ ] `children`
+- [ ] `incoming_edges`
+- [ ] `outgoing_edges`
+- [ ] `reference_summary`
+- [ ] `structural_summary`
+- [ ] `freshness`
+- [ ] `confidence`
 
-## Tool 5: `analyze_symbol_risk`
+### Required risk payload fields
 
-### Purpose
+- [ ] `targets`
+- [ ] `facts`
+- [ ] `issues`
+- [ ] `risk_score`
+- [ ] `decision`
 
-Run the risk engine for one symbol.
+### Do not do
 
-### Why this tool matters
+- [ ] do not leak raw DB rows directly into tool contracts
+- [ ] do not mutate internal service objects in adapters
 
-This is the main deterministic safety check for one target.
+### Done when
 
-### Recommended input
+- [ ] internal models are cleanly separated from tool-facing payloads
 
-```json
-{
-  "symbol_id": "sym:repo:project:method:app.services.auth.AuthService.login"
-}
-```
+***
 
-### Recommended output
+## Step 4 - `resolve_symbol` Tool
 
-```json
-{
-  "risk": {
-    "targets": [
-      {
-        "symbol_id": "sym:repo:project:method:app.services.auth.AuthService.login",
-        "qualified_name": "app.services.auth.AuthService.login",
-        "kind": "method",
-        "file_id": "file:app/services/auth.py",
-        "file_path": "app/services/auth.py",
-        "module_path": "app.services.auth",
-        "visibility_hint": "public"
-      }
-    ],
-    "facts": { "...": "..." },
-    "issues": [
-      "high_reference_count",
-      "cross_file_impact",
-      "cross_module_impact",
-      "public_surface_change"
-    ],
-    "risk_score": 60,
-    "decision": "review_required"
-  }
-}
-```
+### File
 
----
+- [ ] `src/repo_context/mcp/tools.py`
 
-## Tool 6: `analyze_target_set_risk`
+### Implement
 
-### Purpose
+- [ ] handler for `resolve_symbol`
 
-Run the risk engine for multiple resolved targets.
+### Exact input
 
-### Why this tool matters
+- [ ] `repo_id`
+- [ ] `qualified_name`
+- [ ] optional `kind`
 
-Real changes often touch more than one symbol.
+### Exact behavior
 
-### Recommended input
+- [ ] validate input
+- [ ] resolve symbol by repo ID and qualified name
+- [ ] if `kind` is provided, apply it
+- [ ] if exactly one symbol matches, return it
+- [ ] if no symbol matches, return `symbol_not_found`
+- [ ] if lookup is ambiguous under the chosen lookup mode, return `ambiguous_symbol`
+- [ ] do not silently guess among multiple matches
 
-```json
-{
-  "symbol_ids": [
-    "sym:repo:project:method:app.services.auth.AuthService.login",
-    "sym:repo:project:function:app.services.create_session"
-  ]
-}
-```
+### Exact success output
 
-### Recommended output
+- [ ] `ok = true`
+- [ ] `data.symbol` contains adapted symbol payload
 
-Same structure as `analyze_symbol_risk`, but with multiple targets.
+### Do not do
 
----
+- [ ] do not return context here
+- [ ] do not return prose explanation
 
-## Should there be a plan tool in phase 8
+### Done when
 
-You have two valid options.
+- [ ] an agent can deterministically turn a human-friendly symbol reference into one stable internal symbol
 
-## Option A: do not add a plan wrapper yet
+***
 
-Pros:
-- cleaner architecture
-- keeps phase 8 focused on exposing core tools
-- lets the agent compose its own plan workflow
+## Step 5 - `get_symbol_context` Tool
 
-Cons:
-- the agent has to do a bit more orchestration
+### File
 
-## Option B: add a thin `evaluate_plan_risk` wrapper
+- [ ] `src/repo_context/mcp/tools.py`
 
-Pros:
-- convenient
-- closer to the intended workflow
+### Implement
 
-Cons:
-- easy to blur the line between engine and workflow too early
+- [ ] handler for `get_symbol_context`
 
-My blunt recommendation:
-- keep phase 8 focused on core tools
-- add a plan wrapper only if you already know the workflow needs it immediately
+### Exact input
 
----
+- [ ] `symbol_id`
 
-## Tool schemas
+### Exact behavior
 
-Create `schemas.py`.
+- [ ] validate input
+- [ ] build symbol context using phase 5 and phase 6 services
+- [ ] return the structured context
+- [ ] if symbol does not exist, return `symbol_not_found`
 
-You need explicit input and output contracts.
-You can use:
-- dataclasses
-- typed dicts
-- Pydantic if you really want validation
+### Exact success output
 
-For a budget-first solo-dev setup, dataclasses or simple validation helpers are enough.
+- [ ] `ok = true`
+- [ ] `data.context` contains adapted context payload
 
-### Example input schema
+### Do not do
 
-```python
-from dataclasses import dataclass
-from typing import Optional
+- [ ] do not generate English explanation text
+- [ ] do not auto-refresh references here
 
-@dataclass
-class ResolveSymbolInput:
-    repo_id: str
-    qualified_name: str
-    kind: Optional[str] = None
-```
+### Done when
 
-### Example output schema
+- [ ] an agent can request one stable local symbol context object
 
-```python
-from dataclasses import dataclass
-from typing import Any
+***
 
-@dataclass
-class ToolResult:
-    ok: bool
-    data: dict[str, Any] | None = None
-    error: dict[str, Any] | None = None
-```
+## Step 6 - `refresh_symbol_references` Tool
 
-### Why a shared result wrapper helps
+### File
 
-It gives every tool the same top-level shape:
-- success
-- data
-- error
+- [ ] `src/repo_context/mcp/tools.py`
 
-That makes agent handling cleaner.
+### Implement
 
----
+- [ ] handler for `refresh_symbol_references`
 
-## Error design
+### Exact input
 
-Create `errors.py`.
+- [ ] `symbol_id`
 
-Recommended error codes:
+### Exact behavior
 
-- `invalid_input`
-- `symbol_not_found`
-- `ambiguous_symbol`
-- `references_unavailable`
-- `lsp_failure`
-- `stale_context`
-- `internal_error`
+- [ ] validate input
+- [ ] load target symbol
+- [ ] call phase 6 reference enrichment for that symbol
+- [ ] return updated reference summary
+- [ ] if symbol does not exist, return `symbol_not_found`
+- [ ] if declaration position cannot be resolved, return `references_unavailable`
+- [ ] if LSP request fails, return `lsp_failure`
 
-### Suggested error shape
+### Exact success output
 
-```json
-{
-  "ok": false,
-  "error": {
-    "code": "symbol_not_found",
-    "message": "No symbol found for qualified name app.services.auth.AuthService.login",
-    "details": {
-      "qualified_name": "app.services.auth.AuthService.login"
-    }
-  }
-}
-```
+- [ ] `ok = true`
+- [ ] `data.symbol_id`
+- [ ] `data.reference_summary`
 
-### Why this matters
+### Do not do
 
-The agent should not have to parse random string errors.
+- [ ] do not hide failed LSP refresh behind fake zero counts
+- [ ] do not make this tool return raw LSP locations only
 
----
+### Done when
 
-## Adapters
+- [ ] an agent can explicitly refresh one symbol’s references and get a stable summary back
 
-Create `adapters.py`.
+***
 
-This file should convert internal objects into stable MCP payloads.
+## Step 7 - `get_symbol_references` Tool
 
-Examples:
-- node row -> tool-facing symbol payload
-- edge row -> tool-facing reference payload
-- `RiskResult` -> tool-facing risk payload
-- `SymbolContext` -> tool-facing context payload
+### File
 
-### Why this matters
+- [ ] `src/repo_context/mcp/tools.py`
 
-You do not want raw DB shapes leaking into the server contract.
+### Implement
 
----
+- [ ] handler for `get_symbol_references`
 
-## Server implementation strategy
+### Exact input
 
-Create `server.py`.
+- [ ] `symbol_id`
 
-Responsibilities:
+### Exact behavior
 
-- initialize app config
-- open DB access
-- wire in LSP client if needed
-- register MCP tools
-- run the server
+- [ ] validate input
+- [ ] load stored `references` edges targeting the symbol
+- [ ] load stored reference stats for the symbol
+- [ ] return both raw references and summary
+- [ ] if symbol does not exist, return `symbol_not_found`
 
-### Important rule
+### Exact success output
 
-Do not put real business logic in `server.py`.
-It should mainly wire handlers.
+- [ ] `ok = true`
+- [ ] `data.symbol_id`
+- [ ] `data.references`
+- [ ] `data.reference_summary`
 
----
+### Freshness rule
 
-## Tool handler design
+- [ ] this tool must be read-only
+- [ ] this tool must not auto-refresh references implicitly
 
-Create `tools.py`.
+### Do not do
 
-Each handler should:
-1. validate input
-2. call the correct internal service
-3. map the result through an adapter
-4. return a stable tool result
-5. catch domain errors and convert them to structured MCP errors
+- [ ] do not mix refresh and read behavior invisibly
 
-That is all.
+### Done when
 
-### Example shape
+- [ ] an agent can inspect stored callers and usage summary without triggering LSP work
 
-```python
-def resolve_symbol_tool(conn, payload: dict) -> dict:
-    ...
-```
+***
 
-or if your MCP framework expects decorated handlers, that is fine too.
+## Step 8 - `analyze_symbol_risk` Tool
 
-Just keep them thin.
+### File
 
----
+- [ ] `src/repo_context/mcp/tools.py`
 
-## Example handler sketch
+### Implement
 
-```python
-def analyze_symbol_risk_tool(conn, payload: dict) -> dict:
-    symbol_id = payload.get("symbol_id")
-    if not symbol_id:
-        return error_result("invalid_input", "symbol_id is required")
+- [ ] handler for `analyze_symbol_risk`
 
-    try:
-        result = analyze_symbol_risk(conn, symbol_id)
-        return {
-            "ok": True,
-            "data": {
-                "risk": result,
-            },
-        }
-    except ValueError as exc:
-        return error_result("symbol_not_found", str(exc))
-    except Exception as exc:
-        return error_result("internal_error", str(exc))
-```
+### Exact input
 
-This is exactly how boring it should be.
+- [ ] `symbol_id`
 
----
+### Exact behavior
 
-## Reference freshness policy
+- [ ] validate input
+- [ ] call the phase 7 risk engine for one symbol
+- [ ] return structured risk result
+- [ ] if symbol does not exist, return `symbol_not_found`
 
-Do not hide freshness policy in magic behavior.
+### Exact success output
 
-You need to decide:
+- [ ] `ok = true`
+- [ ] `data.risk` contains adapted risk payload
 
-### Option A: read-only reference tool
+### Do not do
 
-- `get_symbol_references` only returns stored data
-- `refresh_symbol_references` refreshes data explicitly
+- [ ] do not add explanation prose
+- [ ] do not collapse facts and issues into one text field
 
-### Option B: auto-refresh if stale
+### Done when
 
-- `get_symbol_references` may trigger LSP refresh
+- [ ] an agent can run a deterministic safety check for one symbol
 
-My recommendation:
-- use Option A
+***
 
-Why:
-- more predictable
-- easier to test
-- cheaper
-- no surprise latency
+## Step 9 - `analyze_target_set_risk` Tool
 
----
+### File
 
-## Suggested MCP workflow
+- [ ] `src/repo_context/mcp/tools.py`
 
-A likely agent workflow with these tools is:
+### Implement
 
-1. `resolve_symbol`
-2. `get_symbol_context`
-3. `refresh_symbol_references` if needed
-4. `analyze_symbol_risk` or `analyze_target_set_risk`
+- [ ] handler for `analyze_target_set_risk`
 
-That gives the agent:
-- identity
-- context
-- freshness
-- risk
+### Exact input
 
-This is already a strong workflow.
+- [ ] `symbol_ids`
 
----
+### Exact behavior
 
-## CLI / launch entry point
+- [ ] validate input
+- [ ] call the phase 7 risk engine for the given symbol set
+- [ ] return structured aggregate risk result
+- [ ] if any symbol does not exist, return `symbol_not_found` or a stricter deterministic validation error according to project conventions
+- [ ] do not silently skip bad symbol IDs
 
-Add a command like:
+### Exact success output
 
-```text
-repo-context serve-mcp
-```
+- [ ] `ok = true`
+- [ ] `data.risk` contains adapted risk payload
 
-### What it should do
+### Do not do
 
-- start the MCP server
-- load config
-- connect to the database
-- initialize dependencies
-- begin serving registered tools
+- [ ] do not parse user prose here
+- [ ] do not accept empty symbol lists
+
+### Done when
+
+- [ ] an agent can assess a resolved multi-target change set deterministically
+
+***
+
+## Step 10 - Tool Handler Rules
+
+### File
+
+- [ ] `src/repo_context/mcp/tools.py`
+
+### Implement
+
+All handlers must follow this exact handler pattern:
+
+- [ ] validate input
+- [ ] call one internal service
+- [ ] adapt result to tool payload
+- [ ] return shared success wrapper
+- [ ] catch domain errors
+- [ ] map domain errors to structured MCP tool errors
+- [ ] catch unexpected failures and return `internal_error`
+
+### Do not do
+
+- [ ] do not put core business logic in handlers
+- [ ] do not open-code different result shapes per tool
+
+### Done when
+
+- [ ] all tools behave consistently at the handler layer
+
+***
+
+## Step 11 - Server Wiring
+
+### File
+
+- [ ] `src/repo_context/mcp/server.py`
+
+### Implement
+
+This module must:
+
+- [ ] initialize config
+- [ ] initialize DB access
+- [ ] initialize LSP dependency only if needed by refresh tools
+- [ ] register all MCP tools
+- [ ] start serving
+
+### Required behavior
+
+- [ ] server wiring must stay thin
+- [ ] tool handlers must be injected or wired cleanly
+- [ ] no risk logic may live here
+- [ ] no context assembly logic may live here
+- [ ] no graph query SQL may live here
+
+### Do not do
+
+- [ ] do not turn `server.py` into a junk drawer
+- [ ] do not hide business logic inside registration closures unless unavoidable
+
+### Done when
+
+- [ ] the MCP server process can start and expose the required tools cleanly
+
+***
+
+## Step 12 - CLI Launch Entry Point
+
+### Files to modify
+
+- [ ] existing CLI module from earlier phases
+
+### Implement
+
+Add:
+
+- [ ] `repo-context serve-mcp`
 
 ### Optional flags
 
-- `--db-path`
-- `--repo-root`
-- `--debug`
+- [ ] `--db-path`
+- [ ] `--repo-root`
+- [ ] `--debug`
 
-Keep it simple.
+### Required behavior
 
----
+- [ ] load config
+- [ ] initialize dependencies
+- [ ] start MCP server
+- [ ] fail clearly on startup errors
 
-## Testing plan
+### Do not do
 
-This phase needs contract tests.
+- [ ] do not bury server startup inside unrelated CLI commands
 
-### `test_resolve_symbol_tool_success`
+### Done when
 
-Verify:
-- valid input returns `ok=true`
-- symbol payload is correct
+- [ ] the MCP server can be launched deterministically from the project CLI
 
-### `test_resolve_symbol_tool_not_found`
+***
 
-Verify:
-- missing symbol returns structured `symbol_not_found`
+## Step 13 - Reference Freshness Policy
 
-### `test_get_symbol_context_tool`
+### Files to verify
 
-Verify:
-- context payload exists
-- expected top-level fields exist
+- [ ] `src/repo_context/mcp/tools.py`
+- [ ] `src/repo_context/mcp/server.py`
 
-### `test_refresh_symbol_references_tool`
+### Implement
 
-Use a fake LSP client.
-Verify:
-- references are refreshed
-- summary fields are returned
+Use this explicit policy:
 
-### `test_get_symbol_references_tool`
+- [ ] `get_symbol_references` is read-only
+- [ ] `refresh_symbol_references` performs refresh
+- [ ] no tool may auto-refresh references silently unless the tool name explicitly says refresh
 
-Verify:
-- stored references come back correctly
-- summary is included
+### Do not do
 
-### `test_analyze_symbol_risk_tool`
+- [ ] do not hide network or LSP latency inside read-only tools
+- [ ] do not mutate state from supposedly read-only tools
 
-Verify:
-- tool returns structured risk result
+### Done when
 
-### `test_analyze_target_set_risk_tool`
+- [ ] reference freshness behavior is explicit and predictable
 
-Verify:
-- multi-symbol input works
+***
 
-### `test_invalid_input_error_shape`
+## Step 14 - Deterministic Ambiguity Handling
 
-Verify:
-- missing required fields return `invalid_input`
+### Files to verify
 
-### `test_internal_error_shape`
+- [ ] `resolve_symbol` tool
+- [ ] adapters and error helpers if needed
 
-Verify:
-- unexpected failures return `internal_error`
+### Implement
 
----
+If symbol resolution is ambiguous:
 
-## Suggested fake dependencies for tests
+- [ ] return `ok = false`
+- [ ] return `error.code = "ambiguous_symbol"`
+- [ ] include enough structured details for the agent to recover, such as:
+  - [ ] candidate symbol IDs
+  - [ ] candidate qualified names
+  - [ ] candidate kinds
 
-Use fake or stub components for:
-- LSP client
-- database fixtures
-- graph queries
+### Do not do
 
-Do not make every MCP test depend on a real language server.
-That is just asking for pain.
+- [ ] do not silently pick the first match
+- [ ] do not hide ambiguity behind `symbol_not_found`
 
----
+### Done when
 
-## Acceptance checklist
+- [ ] the agent can recover from ambiguous symbol resolution without guessing
 
-Phase 8 is done when all of this is true:
+***
 
-- The MCP server starts.
-- Tools are registered cleanly.
-- `resolve_symbol` works.
-- `get_symbol_context` works.
-- `refresh_symbol_references` works.
-- `get_symbol_references` works.
-- `analyze_symbol_risk` works.
-- `analyze_target_set_risk` works.
-- Tool inputs are validated.
-- Tool outputs are structured and stable.
-- Errors are structured and stable.
-- The server does not generate natural-language explanations as tool truth.
-- Tests pass.
+## Step 15 - Tests
 
----
+### Files to create or modify
 
-## Common mistakes to avoid
+- [ ] phase 8 tests under `tests/`
 
-### Mistake 1: Making the MCP server “smart”
+### Test strategy
 
-It should be deterministic and boring, not conversational.
+- [ ] use fake or stub LSP client for refresh tool tests
+- [ ] use deterministic DB fixtures
+- [ ] test tool contracts, not just internal services
 
-### Mistake 2: Returning raw DB rows directly
+### Implement these tests
 
-Always adapt internal objects to stable tool-facing payloads.
+- [ ] `test_resolve_symbol_tool_success`
+- [ ] `test_resolve_symbol_tool_not_found`
+- [ ] `test_get_symbol_context_tool`
+- [ ] `test_refresh_symbol_references_tool`
+- [ ] `test_get_symbol_references_tool`
+- [ ] `test_analyze_symbol_risk_tool`
+- [ ] `test_analyze_target_set_risk_tool`
+- [ ] `test_invalid_input_error_shape`
+- [ ] `test_internal_error_shape`
 
-### Mistake 3: Mixing refresh and read behavior invisibly
+### Exact test assertions
 
-Reference refresh should be explicit.
+#### `test_resolve_symbol_tool_success`
+- [ ] valid input returns `ok = true`
+- [ ] symbol payload fields are correct
 
-### Mistake 4: Weak error contracts
+#### `test_resolve_symbol_tool_not_found`
+- [ ] missing symbol returns `ok = false`
+- [ ] error code is `symbol_not_found`
 
-Random string exceptions are garbage for tool consumers.
+#### `test_get_symbol_context_tool`
+- [ ] context payload exists
+- [ ] expected top-level fields exist
 
-### Mistake 5: Putting business logic in server wiring
+#### `test_refresh_symbol_references_tool`
+- [ ] fake LSP client is used
+- [ ] references are refreshed
+- [ ] updated summary is returned
 
-Handlers should stay thin and call internal services.
+#### `test_get_symbol_references_tool`
+- [ ] stored references are returned
+- [ ] summary is included
+- [ ] tool does not auto-refresh
 
-### Mistake 6: One giant generic tool
+#### `test_analyze_symbol_risk_tool`
+- [ ] structured risk result is returned
+- [ ] facts, issues, score, and decision exist
 
-That usually becomes hard to validate and hard for the agent to use correctly.
+#### `test_analyze_target_set_risk_tool`
+- [ ] multi-symbol input works
+- [ ] aggregate risk result is returned
 
----
+#### `test_invalid_input_error_shape`
+- [ ] missing required fields return `invalid_input`
+- [ ] error payload shape is stable
 
-## What phase 9 will likely add
+#### `test_internal_error_shape`
+- [ ] unexpected handler failures return `internal_error`
+- [ ] error payload shape is stable
 
-Once phase 8 exists, the next useful layer is usually one of these:
+### Do not do
 
-- a plan-oriented MCP wrapper tool
-- incremental indexing and refresh orchestration
-- approval-aware workflow integration
-- a better agent contract around plan -> risk -> revise -> approve
+- [ ] do not rely only on end-to-end smoke tests
+- [ ] do not require a real language server for the whole MCP tool suite
 
-That depends on how tightly you want to bind the graph engine to your coding workflow.
+### Done when
 
----
+- [ ] tool contracts and error contracts are covered by deterministic tests
 
-## Final guidance
+***
 
-This phase is the packaging layer.
+## Step 16 - Final Verification
 
-Before phase 8:
-- your system is useful to you as a developer
+Before marking phase 8 complete, verify all of the following:
 
-After phase 8:
-- your system is usable by an AI agent in a deterministic way
+- [ ] the MCP server starts
+- [ ] tools are registered cleanly
+- [ ] `resolve_symbol` works
+- [ ] `get_symbol_context` works
+- [ ] `refresh_symbol_references` works
+- [ ] `get_symbol_references` works
+- [ ] `analyze_symbol_risk` works
+- [ ] `analyze_target_set_risk` works
+- [ ] tool inputs are validated
+- [ ] tool outputs are structured and stable
+- [ ] errors are structured and stable
+- [ ] the server does not generate natural-language explanations as tool truth
+- [ ] tests pass
 
-That is the key transition.
+Do not mark phase 8 done until every box above is true.
 
-Keep the MCP server:
-- strict
-- narrow
-- structured
-- boring
+***
 
-That is exactly what makes it reliable.
-```
+## Required Execution Order
+
+Implement in this order and do not skip ahead:
+
+- [ ] Step 1 MCP schemas
+- [ ] Step 2 MCP error helpers
+- [ ] Step 3 MCP adapters
+- [ ] Step 4 `resolve_symbol` tool
+- [ ] Step 5 `get_symbol_context` tool
+- [ ] Step 6 `refresh_symbol_references` tool
+- [ ] Step 7 `get_symbol_references` tool
+- [ ] Step 8 `analyze_symbol_risk` tool
+- [ ] Step 9 `analyze_target_set_risk` tool
+- [ ] Step 10 tool handler rules
+- [ ] Step 11 server wiring
+- [ ] Step 12 CLI launch entry point
+- [ ] Step 13 reference freshness policy
+- [ ] Step 14 deterministic ambiguity handling
+- [ ] Step 15 tests
+- [ ] Step 16 final verification
+
+***
+
+## Phase 8 Done Definition
+
+Phase 8 is complete only when all of these are true:
+
+- [ ] phase 1 through phase 7 contracts remain intact
+- [ ] the MCP server is a thin deterministic tool layer
+- [ ] core graph, context, references, and risk logic remain in internal services
+- [ ] tool contracts are strict
+- [ ] error contracts are strict
+- [ ] refresh behavior is explicit
+- [ ] no natural-language reasoning is embedded as tool truth
+- [ ] tests pass
+
+If you want, I can keep going and convert phase 9 too, same format.

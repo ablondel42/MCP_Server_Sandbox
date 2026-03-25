@@ -1,1120 +1,861 @@
-```md
-# 05-context-builder.md
+# 05 Context Builder - Exact Implementation Checklist
 
-## Purpose
+## Objective
 
-This phase builds the context builder.
+Implement phase 5 of the repository indexing pipeline.
 
-Its job is to take stored graph data and assemble a useful symbol-centered view that an AI agent or later MCP tool can consume without manually stitching together raw rows.
+Phase 5 must read the stored graph from phase 4 and assemble a deterministic, symbol-centered context object that later CLI commands, internal tooling, and MCP tools can consume without manually stitching together raw nodes and edges. Deterministic, structured code context is valuable specifically because it is stable and machine-readable rather than heuristic or freeform. [news.ycombinator](https://news.ycombinator.com/item?id=46715705)
 
-The context builder does not create new graph truth.
-It reads the graph and packages the relevant parts around a focus symbol.
-
-This phase should produce structured context such as:
-- the focus symbol
-- the parent symbol
-- child symbols
-- incoming edges
-- outgoing edges
-- lightweight reference summaries when available later
-- freshness signals
-- confidence signals
-- basic structural summaries
-
-This phase does **not** call LSP yet.
-It does **not** compute plan risk yet.
-It does **not** expose MCP tools yet.
-
-It is the first layer that turns stored graph data into something genuinely useful for decision-making.
-
----
-
-## Why this phase matters
-
-Raw nodes and edges are not enough for an AI agent.
-
-Even if the graph is stored correctly, an agent still should not have to ask five separate low-level queries just to understand one symbol. The point of this phase is to give the system a reusable, deterministic way to say:
-
-- what this symbol is
-- where it lives
-- what it contains
-- what contains it
-- what relationships touch it
-- how trustworthy the context is
-- whether the context may be stale
-
-Without this phase, later MCP tools would either:
-- expose low-level table-shaped data directly, or
-- duplicate context assembly logic everywhere
-
-Both are bad.
-
----
-
-## Phase goals
-
-By the end of this phase, you should have:
-
+Phase 5 must provide:
 - symbol lookup by ID
 - symbol lookup by qualified name
-- assembled `SymbolContext`
 - parent resolution
 - child resolution
-- outgoing edge resolution
 - incoming edge resolution
-- lightweight context summaries
-- freshness metadata
-- confidence metadata
-- CLI commands to inspect one symbol context
-- tests for context assembly
+- outgoing edge resolution
+- `SymbolContext` assembly
+- structural summaries
+- freshness summaries
+- confidence summaries
+- CLI context inspection
 
----
-
-## Phase non-goals
-
-Do **not** do any of this in phase 5:
-
+Phase 5 must not provide:
 - LSP reference fetching
-- plan risk scoring
+- risk scoring
 - MCP tool server implementation
-- file watch mode
-- semantic code explanation generation
+- watch mode
+- recursive graph expansion
+- semantic explanation generation
 - autonomous agent behavior
 
-This phase is about assembling graph context, not evaluating plans.
+***
 
----
+## Consistency Rules
 
-## Inputs and outputs
+These rules are mandatory.
 
-## Inputs
+- [ ] Reuse the existing phase 1, phase 2, phase 3, and phase 4 models, query helpers, naming rules, and serialization style.
+- [ ] Reuse the existing `SymbolContext` model if phase 1 already defined it, and only expand it to the required shape instead of replacing it with a new incompatible contract.
+- [ ] Do not rename existing node or edge fields.
+- [ ] Do not move storage logic into the context builder.
+- [ ] Do not move context assembly logic into CLI handlers.
+- [ ] Keep context assembly deterministic.
+- [ ] Keep the context scope shallow and local.
+- [ ] Keep missing data explicit instead of inventing meaning.
+- [ ] Keep the output JSON-friendly and stable.
 
-This phase depends on phase 4.
+***
 
-It uses:
-- stored nodes
-- stored edges
-- repo metadata
-- file metadata
+## Required Inputs
 
-## Outputs
+Phase 5 must consume these existing inputs:
 
-This phase produces:
-- `SymbolContext` objects
-- context summaries for CLI inspection
-- helper functions for later MCP tools
+- [ ] stored nodes from phase 4
+- [ ] stored edges from phase 4
+- [ ] repo metadata already stored in the system
+- [ ] file metadata already stored in the system
+- [ ] graph query helpers from phase 4
 
----
+Do not add new required infrastructure for this phase.
 
-## What “context” means here
+***
 
-Context is not just “the node row”.
+## Required Outputs
 
-For one symbol, useful context usually includes:
+Phase 5 must produce these capabilities:
 
-- the symbol itself
-- its immediate parent
-- its immediate children
-- its incoming relationships
-- its outgoing relationships
-- a few small summary facts
-- freshness
-- confidence
+- [ ] build symbol context by node ID
+- [ ] build symbol context by qualified name
+- [ ] return a `SymbolContext` object with a stable field shape
+- [ ] include the focus symbol
+- [ ] include the immediate parent if it exists
+- [ ] include immediate children
+- [ ] include immediate incoming edges
+- [ ] include immediate outgoing edges
+- [ ] include a reference summary placeholder
+- [ ] include a structural summary
+- [ ] include a freshness summary
+- [ ] include a confidence summary
+- [ ] expose context inspection from CLI
 
-That is enough to make the graph usable without yet turning it into a full reasoning engine.
+Do not add recursive subgraph expansion in this phase.
 
----
+***
 
-## Context design principles
+## Required File Layout
 
-### Principle 1: The focus symbol is the anchor
+Create or extend these files:
 
-Every context object should have one clear focus symbol.
+- [ ] `src/repo_context/graph/context.py`
+- [ ] `src/repo_context/graph/summaries.py`
+- [ ] `src/repo_context/graph/freshness.py`
+- [ ] `src/repo_context/graph/confidence.py`
 
-### Principle 2: Keep the scope local
+Reuse existing files if they already exist.
 
-This phase should assemble immediate and near-local graph context, not giant recursive subgraphs.
+Do not add extra context-related packages unless strictly necessary.
 
-### Principle 3: Do not invent meaning
+***
 
-The context builder should package existing graph facts.
-It should not make speculative claims.
+## Required `SymbolContext` Contract
 
-### Principle 4: Deterministic in, deterministic out
+Use one stable context shape.
 
-Given the same graph state, the same symbol context should be assembled every time.
+If phase 1 already defined `SymbolContext`, expand it to this exact structure without changing field meaning:
 
-### Principle 5: Shallow now, deeper later
+- [ ] `focus_symbol`
+- [ ] `parent`
+- [ ] `children`
+- [ ] `outgoing_edges`
+- [ ] `incoming_edges`
+- [ ] `reference_summary`
+- [ ] `structural_summary`
+- [ ] `freshness`
+- [ ] `confidence`
 
-A clean shallow context is more useful than a huge noisy blob.
-Version 1 should avoid runaway expansion.
+### Exact field rules
 
----
+#### `focus_symbol`
+- [ ] must contain the resolved focus node
+- [ ] must never be `None` in a successful context build
 
-## Recommended package structure additions
+#### `parent`
+- [ ] must contain the immediate parent node if `parent_id` exists
+- [ ] must be `None` if no parent exists
 
-Add these files:
+#### `children`
+- [ ] must contain only immediate child nodes
+- [ ] must default to an empty list if there are no children
 
-```text
-src/
-  repo_context/
-    graph/
-      context.py
-      summaries.py
-      freshness.py
-      confidence.py
-```
+#### `outgoing_edges`
+- [ ] must contain only immediate edges whose `from_id` is the focus symbol ID
+- [ ] must default to an empty list if none exist
 
-### Why this split
+#### `incoming_edges`
+- [ ] must contain only immediate edges whose `to_id` is the focus symbol ID
+- [ ] must default to an empty list if none exist
 
-- `context.py`: orchestrates assembly of symbol context
-- `summaries.py`: computes lightweight structural summaries
-- `freshness.py`: computes freshness flags
-- `confidence.py`: computes confidence rollups
+#### `reference_summary`
+- [ ] must exist even though LSP references do not exist yet
+- [ ] must use a placeholder shape in phase 5
 
-Do not cram everything into one giant file.
+#### `structural_summary`
+- [ ] must contain small aggregated structural facts
+- [ ] must not contain freeform English analysis
 
----
+#### `freshness`
+- [ ] must contain timestamp-based freshness metadata
+- [ ] must not claim freshness certainty that the stored data cannot support
 
-## Core responsibilities of the context builder
+#### `confidence`
+- [ ] must contain confidence rollups derived from stored confidence values
+- [ ] must not invent confidence values
 
-This phase should provide helpers that can answer:
+***
 
-- get a symbol by ID
-- get a symbol by qualified name
-- get the parent symbol
-- get child symbols
-- get outgoing edges
-- get incoming edges
-- assemble these into one structured object
-- summarize counts
-- attach freshness state
-- attach confidence state
+## Scope Rules
 
-That is enough.
-
----
-
-## Recommended `SymbolContext` shape
-
-If phase 1 defined a minimal placeholder model, expand it now into something more useful.
-
-Recommended shape:
-
-```python
-from dataclasses import dataclass, field
-from typing import Optional, Any
-
-@dataclass
-class SymbolContext:
-    focus_symbol: dict
-    parent: Optional[dict] = None
-    children: list[dict] = field(default_factory=list)
-    outgoing_edges: list[dict] = field(default_factory=list)
-    incoming_edges: list[dict] = field(default_factory=list)
-    reference_summary: dict = field(default_factory=dict)
-    structural_summary: dict = field(default_factory=dict)
-    freshness: dict = field(default_factory=dict)
-    confidence: dict = field(default_factory=dict)
-```
-
-### Why this shape works
-
-It is:
-- simple
-- explicit
-- JSON-friendly
-- good enough for CLI now
-- good enough for MCP later
-
-Do not over-design it.
-
----
-
-## Field commentary for `SymbolContext`
-
-### `focus_symbol`
-
-The main symbol being inspected.
-
-What it does:
-- anchors the whole context
-
-Why it matters:
-- everything else is relative to this symbol
-
-### `parent`
-
-Immediate parent symbol if one exists.
-
-Examples:
-- method -> class
-- class -> module
-
-Why it matters:
-- structural placement matters for understanding code
-
-### `children`
-
-Immediate child symbols.
-
-Examples:
-- module children can be classes and top-level functions
-- class children can be methods
-
-Why it matters:
-- useful for understanding symbol ownership and shape
-
-### `outgoing_edges`
-
-Edges that start from the focus symbol.
-
-Examples:
-- `contains`
-- `inherits`
-- later `references`
-
-Why it matters:
-- shows what the symbol points to or depends on
-
-### `incoming_edges`
-
-Edges that end at the focus symbol.
-
-Examples:
-- a `contains` edge from parent
-- later `references` from callers
-
-Why it matters:
-- shows what depends on or contains the symbol
-
-### `reference_summary`
-
-A compact summary of reference facts.
-
-For phase 5, this may be empty or minimal because LSP has not been added yet.
-
-Why keep it now:
-- it stabilizes the shape so later phases can enrich it without changing the whole contract
-
-### `structural_summary`
-
-Small aggregated facts about the symbol and its nearby graph.
-
-Examples:
-- child counts
-- edge counts
-- symbol kind
-- module path
-
-Why it matters:
-- cheap quick understanding
-
-### `freshness`
-
-Metadata about whether the context may be stale.
-
-Why it matters:
-- stale context should later increase caution
-
-### `confidence`
-
-Metadata about how trustworthy the assembled context is.
-
-Why it matters:
-- not all graph data is equally strong
-
----
-
-## Scope rules
-
-Keep the context builder intentionally narrow.
+Apply these scope rules exactly.
 
 ### Include
 
-- focus symbol
-- immediate parent
-- immediate children
-- immediate incoming edges
-- immediate outgoing edges
-- small summaries
+- [ ] focus symbol
+- [ ] immediate parent
+- [ ] immediate children
+- [ ] immediate incoming edges
+- [ ] immediate outgoing edges
+- [ ] small deterministic summaries
 
 ### Exclude
 
-- whole recursive subtree
-- transitive dependency explosion
-- giant import trees
-- giant reverse dependency trees
-- freeform English analysis
+- [ ] recursive parent traversal
+- [ ] recursive child traversal
+- [ ] transitive dependency expansion
+- [ ] giant import trees
+- [ ] reverse dependency trees beyond immediate edges
+- [ ] freeform reasoning text
 
-Why:
-- version 1 needs useful context, not graph spam
+Do not exceed immediate local graph context in version 1.
 
----
+***
 
-## Lookup entry points
+## Entry Points
 
-You should support at least two entry paths.
+Implement exactly these entry points.
 
-### Entry point 1: by node ID
+### Build by ID
 
-Recommended function:
+- [ ] `build_symbol_context_by_id(conn, node_id)`
 
-```python
-def build_symbol_context_by_id(conn, node_id: str) -> SymbolContext:
-    ...
-```
+### Build by qualified name
 
-### Entry point 2: by qualified name
+- [ ] `build_symbol_context_by_qualified_name(conn, repo_id, qualified_name, kind=None)`
 
-Recommended function:
+### Exact behavior
 
-```python
-def build_symbol_context_by_qualified_name(conn, repo_id: str, qualified_name: str, kind: str | None = None) -> SymbolContext:
-    ...
-```
+#### `build_symbol_context_by_id`
+- [ ] resolve the focus symbol by node ID
+- [ ] raise a clear error if the symbol does not exist
+- [ ] assemble the full `SymbolContext`
 
-### Why both matter
+#### `build_symbol_context_by_qualified_name`
+- [ ] resolve the focus symbol by repo ID and qualified name
+- [ ] apply optional kind filter if provided
+- [ ] raise a clear error if the symbol does not exist
+- [ ] delegate to `build_symbol_context_by_id` using the resolved node ID
 
-- IDs are best for internal deterministic calls
-- qualified names are convenient for humans and future tools
+Do not add other entry points in this phase.
 
----
+***
 
-## Parent resolution
+## Error Handling Rules
 
-Parent lookup should use `parent_id` on the node first.
+Apply these rules exactly.
 
-Why:
-- simple
-- direct
-- cheaper than asking through edges
+- [ ] if a symbol is not found, raise a clear domain-level error or `ValueError`
+- [ ] do not return an empty fake context for a missing symbol
+- [ ] do not silently swallow lookup failures
 
-Recommended helper:
+If the project already has a shared errors module, use a small custom not-found error.
+If not, use `ValueError` consistently.
 
-```python
-def get_parent_symbol(conn, node: dict) -> dict | None:
-    ...
-```
+***
 
-### Good rule
+## Parent Resolution Rules
 
-If `parent_id` is missing, return `None`.
-Do not try to infer a parent through fuzzy graph logic.
+Parent lookup must follow these rules exactly.
 
----
+- [ ] use `parent_id` from the focus node as the primary parent lookup source
+- [ ] if `parent_id` is `None` or missing, return `None`
+- [ ] if `parent_id` exists, fetch that node directly
+- [ ] do not infer parent through `contains` edges if `parent_id` is missing
 
-## Child resolution
+This phase must treat `parent_id` as the parent lookup source of truth.
 
-Child lookup should primarily use `parent_id`.
+***
 
-Recommended helper:
+## Child Resolution Rules
 
-```python
-def get_child_symbols(conn, node_id: str) -> list[dict]:
-    ...
-```
+Child lookup must follow these rules exactly.
 
-### Why prefer `parent_id`
+- [ ] use `parent_id` on stored nodes as the primary child lookup mechanism
+- [ ] return only immediate children where `parent_id = focus_symbol.id`
+- [ ] order results deterministically
+- [ ] do not recursively fetch grandchildren
 
-Because it is the most direct hierarchy representation.
+This phase may still expose `contains` edges in edge views, but child lookup itself must use `parent_id`.
 
-You still store `contains` edges because:
-- they are graph-explicit
-- they help later graph traversal
-- they are useful in incoming/outgoing edge views
+***
 
-But for children, `parent_id` is a clean direct lookup.
+## Edge Resolution Rules
 
----
+Immediate edge lookup must follow these rules exactly.
 
-## Edge resolution
+- [ ] outgoing edges must be all edges where `from_id = focus_symbol.id`
+- [ ] incoming edges must be all edges where `to_id = focus_symbol.id`
+- [ ] results must be ordered deterministically
+- [ ] optional kind filters may be supported only through existing phase 4 query helpers
 
-The context builder should expose immediate incoming and outgoing edges.
+Do not expand edge traversal beyond one hop.
 
-Recommended helpers:
+***
 
-```python
-def get_outgoing_edges(conn, node_id: str, kind: str | None = None) -> list[dict]:
-    ...
+## Step 1 - Verify or Expand `SymbolContext`
 
-def get_incoming_edges(conn, node_id: str, kind: str | None = None) -> list[dict]:
-    ...
-```
+### Files to modify
 
-### Why this matters
+- [ ] the existing `SymbolContext` model from phase 1, if present
 
-Some important context is not captured by parent-child structure alone.
+### Implement
 
-Examples:
-- `inherits`
-- `imports`
-- later `references`
+Ensure the `SymbolContext` model supports these exact fields:
 
-So edge visibility belongs in the context object.
+- [ ] `focus_symbol`
+- [ ] `parent`
+- [ ] `children`
+- [ ] `outgoing_edges`
+- [ ] `incoming_edges`
+- [ ] `reference_summary`
+- [ ] `structural_summary`
+- [ ] `freshness`
+- [ ] `confidence`
 
----
+### Required behavior
 
-## Structural summary design
+- [ ] use empty list defaults for child and edge lists
+- [ ] use empty dict defaults for summary fields
+- [ ] keep the model JSON-friendly
+- [ ] preserve backwards compatibility with earlier phases if the model already exists
 
-You should compute a small structural summary, not just dump lists.
+### Do not do
 
-Recommended fields:
+- [ ] do not create a second competing context model
+- [ ] do not add speculative fields not used by phase 5
 
-```python
-{
-  "kind": "class",
-  "qualified_name": "app.services.auth.AuthService",
-  "child_count": 3,
-  "outgoing_edge_count": 2,
-  "incoming_edge_count": 1,
-  "has_parent": true,
-  "module_path": "app.services.auth"
-}
-```
+### Done when
 
-### Why this is useful
+- [ ] one stable `SymbolContext` contract exists and matches phase 5 requirements
 
-It gives a quick understanding of the symbol without reading the full object lists.
+***
 
----
+## Step 2 - Context Builder Orchestration
 
-## Freshness design
+### File
 
-Freshness should be simple in v1.
+- [ ] `src/repo_context/graph/context.py`
 
-Recommended helper:
+### Implement
 
-```python
-def build_freshness_summary(symbol: dict, children: list[dict], incoming_edges: list[dict], outgoing_edges: list[dict]) -> dict:
-    ...
-```
+- [ ] `build_symbol_context_by_id(conn, node_id)`
+- [ ] `build_symbol_context_by_qualified_name(conn, repo_id, qualified_name, kind=None)`
 
-### Recommended output shape
+### Exact build order
 
-```python
-{
-  "focus_last_indexed_at": "2026-03-23T20:10:00Z",
-  "oldest_edge_last_indexed_at": "2026-03-23T20:10:00Z",
-  "is_stale": false,
-  "reason": None
-}
-```
+For `build_symbol_context_by_id`:
 
-### Simple initial rule
+- [ ] resolve focus symbol
+- [ ] resolve parent symbol
+- [ ] resolve child symbols
+- [ ] resolve outgoing edges
+- [ ] resolve incoming edges
+- [ ] build structural summary
+- [ ] build freshness summary
+- [ ] build confidence summary
+- [ ] create reference summary placeholder
+- [ ] assemble and return `SymbolContext`
 
-For phase 5, a practical stale rule is enough.
+### Do not do
 
-Example:
-- if `last_indexed_at` is missing anywhere important -> stale
-- otherwise not stale
+- [ ] do not perform recursive traversal
+- [ ] do not perform semantic interpretation
+- [ ] do not call LSP
 
-You can improve this later.
+### Done when
 
-### Important rule
+- [ ] one function can build a complete local symbol context deterministically
 
-Do not make freshness clever yet.
-Make it honest.
+***
 
----
+## Step 3 - Structural Summary Helper
 
-## Confidence design
+### File
 
-Confidence should summarize what the graph already knows.
+- [ ] `src/repo_context/graph/summaries.py`
 
-Recommended helper:
+### Implement
 
-```python
-def build_confidence_summary(symbol: dict, children: list[dict], incoming_edges: list[dict], outgoing_edges: list[dict]) -> dict:
-    ...
-```
+- [ ] `build_structural_summary(focus_symbol, parent, children, incoming_edges, outgoing_edges)`
 
-### Recommended output shape
+### Required output fields
 
-```python
-{
-  "focus_symbol_confidence": 1.0,
-  "min_edge_confidence": 0.75,
-  "min_child_confidence": 1.0,
-  "overall_confidence": 0.75
-}
-```
+- [ ] `kind`
+- [ ] `name`
+- [ ] `qualified_name`
+- [ ] `has_parent`
+- [ ] `child_count`
+- [ ] `incoming_edge_count`
+- [ ] `outgoing_edge_count`
+- [ ] `child_kind_counts`
+- [ ] `module_path` when derivable
 
-### Practical rule
+### Exact field rules
 
-A simple v1 rule is:
-- overall confidence = minimum of focus symbol, child confidences, and edge confidences if present
-- if no edges or children exist, use the focus symbol confidence
+#### `kind`
+- [ ] copy from focus symbol kind
 
-That is crude, but useful.
+#### `name`
+- [ ] copy from focus symbol name
 
----
+#### `qualified_name`
+- [ ] copy from focus symbol qualified name
 
-## Reference summary design
+#### `has_parent`
+- [ ] `True` if parent is not `None`
+- [ ] `False` otherwise
 
-LSP references do not exist yet in phase 5, but you should still add the field now.
+#### `child_count`
+- [ ] equal to length of `children`
 
-Recommended output for now:
+#### `incoming_edge_count`
+- [ ] equal to length of `incoming_edges`
 
-```python
-{
-  "reference_count": 0,
-  "referencing_file_count": 0,
-  "available": false
-}
-```
+#### `outgoing_edge_count`
+- [ ] equal to length of `outgoing_edges`
 
-### Why include this now
+#### `child_kind_counts`
+- [ ] aggregate counts by child `kind`
+- [ ] return empty dict if there are no children
 
-Because later phases can enrich the same context shape without breaking downstream code.
+#### `module_path`
+- [ ] if focus symbol kind is `module`, use its own qualified name
+- [ ] if focus symbol kind is `class`, derive from its parent module if available, otherwise derive from qualified name conservatively
+- [ ] if focus symbol kind is callable, derive from module parent if callable parent is module, or from class parent’s module if callable parent is class
+- [ ] if it cannot be derived safely, set to `None`
 
-This is one of those small boring decisions that prevents dumb rewrites later.
+### Do not do
 
----
+- [ ] do not add prose summaries
+- [ ] do not compute recursive metrics
 
-## Recommended context builder flow
+### Done when
 
-Use this sequence:
+- [ ] one small summary object gives a quick structural view of the focus symbol
 
-1. resolve focus symbol
-2. resolve parent symbol
-3. resolve child symbols
-4. resolve outgoing edges
-5. resolve incoming edges
-6. build structural summary
-7. build freshness summary
-8. build confidence summary
-9. build reference summary placeholder
-10. assemble `SymbolContext`
+***
 
-This phase is mostly orchestration.
+## Step 4 - Freshness Summary Helper
 
----
+### File
 
-## Example `context.py` sketch
+- [ ] `src/repo_context/graph/freshness.py`
 
-```python
-from repo_context.graph.queries import (
-    get_symbol,
-    get_symbol_by_qualified_name,
-    get_parent_symbol,
-    get_child_symbols,
-    get_outgoing_edges,
-    get_incoming_edges,
-)
-from repo_context.graph.summaries import build_structural_summary
-from repo_context.graph.freshness import build_freshness_summary
-from repo_context.graph.confidence import build_confidence_summary
+### Implement
 
-def build_symbol_context_by_id(conn, node_id: str) -> dict:
-    focus = get_symbol(conn, node_id)
-    if focus is None:
-        raise ValueError(f"Unknown symbol ID: {node_id}")
-
-    parent = get_parent_symbol(conn, focus)
-    children = get_child_symbols(conn, node_id)
-    outgoing_edges = get_outgoing_edges(conn, node_id)
-    incoming_edges = get_incoming_edges(conn, node_id)
+- [ ] `build_freshness_summary(symbol, children, incoming_edges, outgoing_edges)`
 
-    structural_summary = build_structural_summary(
-        focus_symbol=focus,
-        parent=parent,
-        children=children,
-        incoming_edges=incoming_edges,
-        outgoing_edges=outgoing_edges,
-    )
+### Required output fields
 
-    freshness = build_freshness_summary(
-        symbol=focus,
-        children=children,
-        incoming_edges=incoming_edges,
-        outgoing_edges=outgoing_edges,
-    )
+- [ ] `focus_last_indexed_at`
+- [ ] `oldest_related_last_indexed_at`
+- [ ] `missing_timestamp_count`
+- [ ] `is_stale`
+- [ ] `reason`
 
-    confidence = build_confidence_summary(
-        symbol=focus,
-        children=children,
-        incoming_edges=incoming_edges,
-        outgoing_edges=outgoing_edges,
-    )
+### Exact logic
 
-    return {
-        "focus_symbol": focus,
-        "parent": parent,
-        "children": children,
-        "outgoing_edges": outgoing_edges,
-        "incoming_edges": incoming_edges,
-        "reference_summary": {
-            "reference_count": 0,
-            "referencing_file_count": 0,
-            "available": False,
-        },
-        "structural_summary": structural_summary,
-        "freshness": freshness,
-        "confidence": confidence,
-    }
+- [ ] collect `last_indexed_at` from the focus symbol
+- [ ] collect `last_indexed_at` from all children
+- [ ] collect `last_indexed_at` from all incoming edges
+- [ ] collect `last_indexed_at` from all outgoing edges
+- [ ] count how many of those timestamps are missing
+- [ ] if any timestamp is missing, set `is_stale = True`
+- [ ] if no timestamps are missing, set `is_stale = False`
+- [ ] if timestamps exist, compute the oldest related timestamp
+- [ ] if no related timestamps exist beyond the focus symbol, use the focus timestamp as the oldest related timestamp
+- [ ] if `is_stale = True`, set a simple explicit reason
+- [ ] if `is_stale = False`, set `reason = None`
 
-def build_symbol_context_by_qualified_name(conn, repo_id: str, qualified_name: str, kind: str | None = None) -> dict:
-    focus = get_symbol_by_qualified_name(conn, repo_id, qualified_name, kind=kind)
-    if focus is None:
-        raise ValueError(f"Unknown symbol qualified name: {qualified_name}")
-    return build_symbol_context_by_id(conn, focus["id"])
-```
+### Do not do
 
-This is enough for v1.
+- [ ] do not implement age thresholds yet
+- [ ] do not invent advanced freshness scoring
 
----
+### Done when
 
-## Structural summary helper
+- [ ] freshness is honest, deterministic, and based only on stored timestamps
 
-Create `graph/summaries.py`.
+***
 
-Recommended function:
+## Step 5 - Confidence Summary Helper
 
-```python
-def build_structural_summary(
-    focus_symbol: dict,
-    parent: dict | None,
-    children: list[dict],
-    incoming_edges: list[dict],
-    outgoing_edges: list[dict],
-) -> dict:
-    ...
-```
+### File
 
-### Suggested output fields
+- [ ] `src/repo_context/graph/confidence.py`
 
-- `kind`
-- `name`
-- `qualified_name`
-- `has_parent`
-- `child_count`
-- `incoming_edge_count`
-- `outgoing_edge_count`
-- `child_kind_counts`
-- optional `module_path` if derivable
+### Implement
 
-### Example output
+- [ ] `build_confidence_summary(symbol, children, incoming_edges, outgoing_edges)`
 
-```python
-{
-  "kind": "class",
-  "name": "AuthService",
-  "qualified_name": "app.services.auth.AuthService",
-  "has_parent": True,
-  "child_count": 3,
-  "incoming_edge_count": 1,
-  "outgoing_edge_count": 2,
-  "child_kind_counts": {
-    "method": 3
-  },
-  "module_path": "app.services.auth"
-}
-```
+### Required output fields
 
-### Why this matters
+- [ ] `focus_symbol_confidence`
+- [ ] `min_child_confidence`
+- [ ] `min_edge_confidence`
+- [ ] `overall_confidence`
 
-It is a cheap but useful abstraction over raw rows.
+### Exact logic
 
----
+- [ ] read confidence from the focus symbol
+- [ ] collect confidence from all children
+- [ ] collect confidence from all incoming edges
+- [ ] collect confidence from all outgoing edges
+- [ ] `focus_symbol_confidence` must equal focus symbol confidence
+- [ ] `min_child_confidence` must equal the minimum child confidence if children exist, otherwise equal focus symbol confidence
+- [ ] `min_edge_confidence` must equal the minimum edge confidence across incoming and outgoing edges if edges exist, otherwise equal focus symbol confidence
+- [ ] `overall_confidence` must equal the minimum of:
+  - focus symbol confidence
+  - all child confidences, if any
+  - all edge confidences, if any
 
-## Freshness helper
+### Do not do
 
-Create `graph/freshness.py`.
+- [ ] do not invent weighted formulas in this phase
+- [ ] do not ignore low-confidence edges
 
-Recommended function:
+### Done when
 
-```python
-def build_freshness_summary(
-    symbol: dict,
-    children: list[dict],
-    incoming_edges: list[dict],
-    outgoing_edges: list[dict],
-) -> dict:
-    ...
-```
+- [ ] confidence is summarized deterministically from existing stored values only
 
-### Recommended simple logic
+***
 
-Collect all relevant `last_indexed_at` timestamps from:
-- focus symbol
-- children
-- incoming edges
-- outgoing edges
+## Step 6 - Reference Summary Placeholder
 
-Then:
-- if any are missing, mark `is_stale=True`
-- otherwise mark `is_stale=False`
+### File
 
-Optional:
-- record oldest timestamp
-- record missing component count
+- [ ] `src/repo_context/graph/context.py` or a tiny helper module if preferred
 
-### Example output
+### Implement
 
-```python
-{
-  "focus_last_indexed_at": "2026-03-23T22:00:00Z",
-  "oldest_related_last_indexed_at": "2026-03-23T22:00:00Z",
-  "missing_timestamp_count": 0,
-  "is_stale": False,
-  "reason": None
-}
-```
+Always include a placeholder `reference_summary` in every built context.
 
-This does not need to be smarter yet.
+### Required placeholder fields
 
----
+- [ ] `reference_count`
+- [ ] `referencing_file_count`
+- [ ] `available`
 
-## Confidence helper
+### Exact placeholder values for phase 5
 
-Create `graph/confidence.py`.
+- [ ] `reference_count = 0`
+- [ ] `referencing_file_count = 0`
+- [ ] `available = False`
 
-Recommended function:
+### Do not do
 
-```python
-def build_confidence_summary(
-    symbol: dict,
-    children: list[dict],
-    incoming_edges: list[dict],
-    outgoing_edges: list[dict],
-) -> dict:
-    ...
-```
+- [ ] do not infer references from imports
+- [ ] do not fake reference counts
 
-### Recommended simple logic
+### Done when
 
-Collect confidence values from:
-- focus symbol
-- children
-- incoming edges
-- outgoing edges
+- [ ] every `SymbolContext` contains a stable reference summary field even before LSP exists
 
-Compute:
-- `focus_symbol_confidence`
-- `min_child_confidence`
-- `min_edge_confidence`
-- `overall_confidence`
+***
 
-### Example output
+## Step 7 - Lookup Reuse
 
-```python
-{
-  "focus_symbol_confidence": 1.0,
-  "min_child_confidence": 1.0,
-  "min_edge_confidence": 0.75,
-  "overall_confidence": 0.75
-}
-```
+### Files to verify
 
-This is simple and honest.
+- [ ] `src/repo_context/graph/context.py`
+- [ ] phase 4 graph query helpers
 
----
+### Implement
 
-## Context assembly rules by symbol kind
+Use phase 4 helpers for all low-level reads.
 
-You can keep one generic context builder, but it is useful to understand expected shapes.
+### Exact reuse rules
 
-## Module context
+- [ ] use existing node lookup by ID
+- [ ] use existing node lookup by qualified name
+- [ ] use existing parent lookup helper if available
+- [ ] use existing child lookup helper if available
+- [ ] use existing outgoing edge lookup helper
+- [ ] use existing incoming edge lookup helper
 
-Likely includes:
-- no parent
-- children = classes and top-level callables
-- outgoing `imports` and `contains`
-- incoming maybe little or none in AST-only mode
+### Do not do
 
-## Class context
+- [ ] do not duplicate raw SQL in the context builder if phase 4 already provides the query helper
+- [ ] do not bypass the graph query layer unnecessarily
 
-Likely includes:
-- parent = module
-- children = methods
-- outgoing `inherits` and `contains`
-- incoming `contains`
+### Done when
 
-## Callable context
+- [ ] context assembly is orchestration on top of phase 4, not a duplicate storage layer
 
-Likely includes:
-- parent = class or module
-- children = none in v1
-- incoming `contains`
-- outgoing mostly none in AST-only mode until references exist later
+***
 
-Knowing these shapes helps testing and debugging.
+## Step 8 - Context Assembly by Symbol Kind
 
----
+### File
 
-## Query filtering helpers
+- [ ] `src/repo_context/graph/context.py`
 
-It is useful to add small helpers now.
+### Implement
 
-Examples:
+Use one generic context builder, but verify behavior for each expected symbol kind.
 
-```python
-def filter_edges_by_kind(edges: list[dict], kind: str) -> list[dict]:
-    ...
+### Exact expected behavior for module symbols
 
-def filter_children_by_kind(children: list[dict], kind: str) -> list[dict]:
-    ...
-```
+- [ ] `parent` must be `None`
+- [ ] `children` may include classes and top-level callables
+- [ ] `outgoing_edges` may include `contains` and `imports`
+- [ ] `incoming_edges` may be empty or small in AST-only mode
 
-### Why this is useful
+### Exact expected behavior for class symbols
 
-Later the MCP layer may want:
-- only `inherits` edges
-- only methods
-- only classes
-- only `references`
+- [ ] `parent` must be the module
+- [ ] `children` may include direct methods
+- [ ] `outgoing_edges` may include `contains` and `inherits`
+- [ ] `incoming_edges` should include a `contains` edge from the module when stored
 
-Do not overbuild it, but a tiny filter module is fine.
+### Exact expected behavior for callable symbols
 
----
+- [ ] `parent` must be either module or class
+- [ ] `children` must be empty in v1
+- [ ] `incoming_edges` should include a `contains` edge from the parent when stored
+- [ ] `outgoing_edges` may be empty in AST-only mode
 
-## CLI additions for this phase
+### Do not do
 
-Add a command like:
+- [ ] do not create separate incompatible context contracts for different symbol kinds
 
-```text
-repo-context show-context <node-id>
-```
+### Done when
 
-### What it should do
+- [ ] the generic builder returns structurally correct local context for modules, classes, and callables
 
-- resolve the symbol context
-- print a readable structured view
-- include focus symbol
-- include parent
-- include child IDs or names
-- include incoming/outgoing edge counts
-- include freshness and confidence summaries
+***
 
-### Optional second command
+## Step 9 - Optional Filter Helpers
 
-```text
-repo-context show-context-by-name <repo-id> <qualified-name>
-```
+### File
 
-This is useful for manual testing.
+- [ ] `src/repo_context/graph/filters.py`
 
----
+### Implement
 
-## Example CLI output shape
+Add only tiny reusable filters if needed.
 
-A plain text or JSON output is fine.
+Allowed helpers:
+- [ ] `filter_edges_by_kind(edges, kind)`
+- [ ] `filter_children_by_kind(children, kind)`
 
-Example JSON-ish output:
+### Exact behavior
 
-```json
-{
-  "focus_symbol": {
-    "id": "sym:repo:project:class:app.services.auth.AuthService",
-    "kind": "class",
-    "qualified_name": "app.services.auth.AuthService"
-  },
-  "parent": {
-    "id": "sym:repo:project:module:app.services.auth",
-    "kind": "module"
-  },
-  "children": [
-    {
-      "id": "sym:repo:project:method:app.services.auth.AuthService.login",
-      "kind": "method"
-    }
-  ],
-  "structural_summary": {
-    "child_count": 1,
-    "incoming_edge_count": 1,
-    "outgoing_edge_count": 2
-  },
-  "freshness": {
-    "is_stale": false
-  },
-  "confidence": {
-    "overall_confidence": 0.75
-  }
-}
-```
+- [ ] preserve input order
+- [ ] return only elements whose `kind` matches the filter
+- [ ] return empty list if nothing matches
 
-This is plenty for phase 5.
+### Do not do
 
----
+- [ ] do not build a custom query language
+- [ ] do not move core context assembly here
 
-## Error handling rules
+### Done when
 
-If a symbol cannot be found:
-- raise a clear domain error or return a structured not-found result
-- do not silently return an empty context
+- [ ] small repeated filtering logic is not duplicated
 
-Good options:
-- `ValueError`
-- custom `SymbolNotFoundError`
+***
 
-My recommendation:
-- use a small custom error if you already have an errors module
-- otherwise `ValueError` is acceptable for now
+## Step 10 - CLI Context Inspection
 
-### Why this matters
+### Files to modify
 
-Later MCP should be able to translate not-found conditions cleanly.
+- [ ] existing CLI module from earlier phases
 
----
+### Implement
 
-## Testing plan
+Add these commands.
 
-This phase should have strong context-centric tests.
+### Command 1
+- [ ] `repo-context show-context <node-id>`
 
-### `test_build_context_for_module`
+### Required behavior
+- [ ] resolve the symbol context by node ID
+- [ ] print the full structured context in a readable format
+- [ ] include focus symbol
+- [ ] include parent
+- [ ] include child identities
+- [ ] include incoming and outgoing edge counts
+- [ ] include freshness summary
+- [ ] include confidence summary
 
-Verify:
-- focus symbol is the module
-- parent is `None`
-- children include expected top-level symbols
-- structural summary is correct
+### Command 2
+- [ ] `repo-context show-context-by-name <repo-id> <qualified-name>`
 
-### `test_build_context_for_class`
+### Required behavior
+- [ ] resolve the symbol context by repo ID and qualified name
+- [ ] support optional kind filter only if your CLI style already supports optional arguments cleanly
+- [ ] print the full structured context in a readable format
 
-Verify:
-- parent is the module
-- children include methods
-- outgoing edges include `inherits` and `contains` as expected
+### Output rule
 
-### `test_build_context_for_method`
+- [ ] JSON output is acceptable
+- [ ] plain readable structured text is acceptable
+- [ ] output must be deterministic
 
-Verify:
-- parent is the class
-- children are empty
-- incoming `contains` edge exists
+### Do not do
 
-### `test_lookup_by_qualified_name`
+- [ ] do not add MCP-like transport behavior
+- [ ] do not hide core context fields from the output
 
-Verify:
-- symbol can be resolved by repo ID and qualified name
-- resulting context matches expected focus symbol
+### Done when
 
-### `test_freshness_summary`
+- [ ] one symbol context can be inspected manually from CLI without direct SQL
 
-Verify:
-- missing timestamps produce stale context
-- complete timestamps produce non-stale context
+***
 
-### `test_confidence_summary`
+## Step 11 - Missing Data Behavior
 
-Verify:
-- low-confidence edge lowers overall confidence
-- strong focus symbol is still reported correctly
+### Files to verify
 
-### `test_unknown_symbol_raises`
+- [ ] `src/repo_context/graph/context.py`
+- [ ] helper modules
 
-Verify:
-- missing symbol ID results in a clear failure
+### Implement
 
----
+Apply these exact missing-data rules.
 
-## Suggested fixture usage
+- [ ] if parent does not exist, use `None`
+- [ ] if children do not exist, use empty list
+- [ ] if incoming edges do not exist, use empty list
+- [ ] if outgoing edges do not exist, use empty list
+- [ ] if `module_path` cannot be derived safely, use `None`
+- [ ] if freshness cannot prove completeness, mark stale honestly
+- [ ] if confidence values are missing unexpectedly, fail clearly or handle consistently according to existing project conventions
 
-Reuse the same small AST fixtures from phase 3 and phase 4.
+### Do not do
 
-Especially useful:
-- a file with a class and methods
-- a file with top-level functions
-- a class with bases
-- imports in the module
+- [ ] do not fabricate parent nodes
+- [ ] do not fabricate missing edges
+- [ ] do not hide stale status
 
-That gives you enough graph structure to test meaningful context assembly.
+### Done when
 
----
+- [ ] incomplete graph state is represented honestly instead of being papered over
 
-## Acceptance checklist
+***
 
-Phase 5 is done when all of this is true:
+## Step 12 - Tests
 
-- A symbol can be loaded by ID.
-- A symbol can be loaded by qualified name.
-- Parent lookup works.
-- Child lookup works.
-- Incoming edge lookup works.
-- Outgoing edge lookup works.
-- `SymbolContext` objects are assembled cleanly.
-- Structural summary is included.
-- Freshness summary is included.
-- Confidence summary is included.
-- Reference summary placeholder is included.
-- CLI context inspection works.
-- Tests pass.
-- No LSP integration exists yet.
-- No risk engine exists yet.
-- No MCP server exists yet.
+### Files to create or modify
 
----
+- [ ] phase 5 tests under `tests/`
 
-## Common mistakes to avoid
+### Implement these tests
 
-### Mistake 1: Returning raw SQL rows directly everywhere
+- [ ] `test_build_context_for_module`
+- [ ] `test_build_context_for_class`
+- [ ] `test_build_context_for_method`
+- [ ] `test_lookup_by_qualified_name`
+- [ ] `test_freshness_summary`
+- [ ] `test_confidence_summary`
+- [ ] `test_unknown_symbol_raises`
+- [ ] CLI context inspection tests if CLI tests already exist in project style
 
-The point of this phase is to build a reusable context object, not make every caller assemble pieces manually.
+### Exact test assertions
 
-### Mistake 2: Expanding too deep
+#### `test_build_context_for_module`
+- [ ] focus symbol is the module
+- [ ] parent is `None`
+- [ ] children include expected top-level symbols
+- [ ] structural summary fields are correct
 
-Do not recursively include the whole graph around a symbol.
-That becomes noise fast.
+#### `test_build_context_for_class`
+- [ ] focus symbol is the class
+- [ ] parent is the module
+- [ ] children include expected methods
+- [ ] outgoing edges include expected structural edges
+- [ ] structural summary fields are correct
 
-### Mistake 3: Mixing evaluation with context assembly
+#### `test_build_context_for_method`
+- [ ] focus symbol is the method
+- [ ] parent is the class
+- [ ] children is empty
+- [ ] incoming `contains` edge exists if stored
+- [ ] structural summary fields are correct
 
-This phase should expose graph facts, not risk judgments.
+#### `test_lookup_by_qualified_name`
+- [ ] symbol resolves correctly by repo ID and qualified name
+- [ ] resulting context focus symbol matches expected node
 
-### Mistake 4: Forgetting freshness and confidence
+#### `test_freshness_summary`
+- [ ] missing timestamps produce `is_stale = True`
+- [ ] complete timestamps produce `is_stale = False`
+- [ ] missing timestamp count is correct
 
-Even a structurally correct context can be misleading if it is stale or low confidence.
+#### `test_confidence_summary`
+- [ ] low-confidence edge lowers `overall_confidence`
+- [ ] focus symbol confidence is preserved
+- [ ] minimum child confidence is correct
+- [ ] minimum edge confidence is correct
 
-### Mistake 5: Hiding missing data
+#### `test_unknown_symbol_raises`
+- [ ] unknown node ID raises clear failure
+- [ ] unknown qualified name raises clear failure
 
-If a parent or child is missing, return that honestly.
-Do not paper over it.
+### Do not do
 
-### Mistake 6: Letting CLI formatting become the main API
+- [ ] do not rely only on smoke tests
+- [ ] do not leave freshness and confidence untested
 
-The CLI is only a debug surface.
-The real product of this phase is the structured context object.
+### Done when
 
----
+- [ ] context assembly behavior is covered by focused deterministic tests
 
-## What phase 6 will depend on
+***
 
-The next phase will assume phase 5 already gives it:
+## Step 13 - End-to-End Fixture Validation
 
-- reliable symbol lookups
-- reliable context assembly
-- clear parent-child structure
-- incoming and outgoing edge views
-- freshness and confidence summaries
+### Files to use
 
-Phase 6 will add LSP-based `references`.
-Those references will later slot naturally into:
-- outgoing edges
-- incoming edges
-- reference summaries
+- [ ] reuse phase 3 and phase 4 fixture repos
 
-That is why this phase should already include a placeholder `reference_summary` field.
+### Implement
 
----
+For at least one fixture repo:
 
-## Final guidance
+- [ ] scan files using phase 2
+- [ ] extract nodes and edges using phase 3
+- [ ] persist graph using phase 4
+- [ ] build symbol context using phase 5
+- [ ] assert exact expected context fields
 
-This phase is the first time the graph becomes comfortable to use.
+### Do not do
 
-Before this phase:
-- you had stored graph data
+- [ ] do not involve LSP
+- [ ] do not involve MCP
 
-After this phase:
-- you have reusable symbol context
+### Done when
 
-That is a big quality-of-life step.
+- [ ] phases 2 through 5 work together on at least one real fixture path
 
-Keep it shallow, deterministic, and honest:
+***
 
-- assemble only near-local context
-- include summaries, not essays
-- preserve freshness and confidence
-- do not jump ahead to risk scoring
+## Step 14 - Final Verification
 
-If you do that, phase 5 becomes the clean bridge between graph storage and all later agent-facing features.
-```
+Before marking phase 5 complete, verify all of the following:
+
+- [ ] a symbol can be loaded by ID
+- [ ] a symbol can be loaded by qualified name
+- [ ] parent lookup works
+- [ ] child lookup works
+- [ ] incoming edge lookup works
+- [ ] outgoing edge lookup works
+- [ ] `SymbolContext` objects assemble correctly
+- [ ] structural summary is included
+- [ ] freshness summary is included
+- [ ] confidence summary is included
+- [ ] reference summary placeholder is included
+- [ ] CLI context inspection works
+- [ ] tests pass
+- [ ] no LSP integration exists
+- [ ] no risk engine exists
+- [ ] no MCP server exists
+
+Do not mark phase 5 done until every box above is true.
+
+***
+
+## Required Execution Order
+
+Implement in this order and do not skip ahead:
+
+- [ ] Step 1 verify or expand `SymbolContext`
+- [ ] Step 2 context builder orchestration
+- [ ] Step 3 structural summary helper
+- [ ] Step 4 freshness summary helper
+- [ ] Step 5 confidence summary helper
+- [ ] Step 6 reference summary placeholder
+- [ ] Step 7 lookup reuse
+- [ ] Step 8 context assembly by symbol kind
+- [ ] Step 9 optional filter helpers
+- [ ] Step 10 CLI context inspection
+- [ ] Step 11 missing data behavior
+- [ ] Step 12 tests
+- [ ] Step 13 end-to-end fixture validation
+- [ ] Step 14 final verification
+
+***
+
+## Phase 5 Done Definition
+
+Phase 5 is complete only when all of these are true:
+
+- [ ] phase 1 through phase 4 contracts remain intact
+- [ ] symbol context can be built deterministically from stored graph data
+- [ ] context remains shallow and local
+- [ ] summaries are included and correct
+- [ ] freshness is explicit
+- [ ] confidence is explicit
+- [ ] reference summary placeholder exists
+- [ ] CLI inspection works
+- [ ] tests pass
+- [ ] no out-of-scope features were added

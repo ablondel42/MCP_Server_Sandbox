@@ -1,851 +1,745 @@
-```md
-# 09-watch-mode.md
+# 09 Watch Mode - Exact Implementation Checklist
 
-## Purpose
+## Objective
 
-This phase adds watch mode.
+Implement phase 9 of the repository indexing pipeline.
 
-Watch mode keeps the repository graph fresh while the codebase changes, without requiring a full manual rescan and reindex every time. It listens for filesystem changes, determines what changed, and refreshes only the affected graph state.
+Phase 9 must keep the repository graph fresh during active development by watching filesystem changes and performing the smallest reasonable incremental update.
 
-In plain English:
-
-- files change
-- watch mode notices
-- the system rescans only what matters
-- AST structure is refreshed
-- reference data is refreshed when needed
-- the graph stays usable without full rebuilds every time
-
-This phase is about freshness and developer workflow speed.
-
----
-
-## Why this phase matters
-
-Without watch mode, the system becomes stale fast during active development.
-
-That causes obvious problems:
-
-- symbol context becomes outdated
-- reference counts drift
-- risk analysis becomes less trustworthy
-- the agent may reason over old graph state
-- the user has to keep triggering manual refreshes
-
-A manual reindex command is still useful, but it is a bad primary workflow once the system is actually used during coding.
-
-Watch mode is the layer that makes the system feel alive.
-
----
-
-## Phase goals
-
-By the end of this phase, you should have:
-
-- a filesystem watcher for repository changes
-- change event normalization
-- file create, modify, delete handling
-- selective rescanning of changed files
-- selective AST re-extraction
-- graph replacement for affected files
+Phase 9 must provide:
+- filesystem watching for repository changes
+- normalized change events
+- debounce and path deduplication
+- file create handling
+- file modify handling
+- file delete handling
+- incremental file reindexing
+- graph replacement for changed files
 - cleanup for deleted files
-- optional targeted reference invalidation or refresh
-- freshness tracking updates
-- a CLI command to run watch mode
-- tests for file-event handling and incremental refresh behavior
+- reference invalidation
+- CLI watch mode
+- tests for event handling and incremental refresh
 
----
+Phase 9 must not provide:
+- distributed indexing infrastructure
+- multi-repo orchestration complexity
+- UI dashboard work
+- perfect semantic dependency invalidation
+- full global LSP refresh on every save
 
-## Phase non-goals
+***
 
-Do **not** do any of this in phase 9:
+## Consistency Rules
 
-- building a distributed indexing service
-- watching multiple repos with a huge orchestration layer
-- adding a UI dashboard
-- implementing perfect semantic dependency invalidation
-- fully automatic global LSP refresh on every keystroke
+These rules are mandatory.
 
-This phase is local incremental freshness, not infrastructure theater.
+- [ ] Reuse the existing phase 1 through phase 8 models, repo scanning rules, AST extraction pipeline, graph replacement helpers, reference logic, and CLI style.
+- [ ] Reuse the same supported-file and ignored-path rules already used by repo scanning.
+- [ ] Reuse file-level graph replacement as the main persistence primitive.
+- [ ] Keep watch mode orchestration separate from AST extraction logic.
+- [ ] Keep watch mode orchestration separate from MCP server logic.
+- [ ] Keep writes sequential for v1.
+- [ ] Keep reference invalidation explicit.
+- [ ] Keep parse-failure behavior conservative.
+- [ ] Keep event normalization deterministic.
+- [ ] Keep batch collapse rules tiny and explicit.
 
----
+***
 
-## What already exists from previous phases
+## Required Inputs
 
-This phase assumes you already have:
+Phase 9 must consume these existing inputs:
 
-- repo scanning
-- AST extraction
-- graph storage with file replacement
-- context assembly
-- LSP reference enrichment
-- risk engine
-- MCP tool exposure
+- [ ] repo root path
+- [ ] app config and ignore rules
+- [ ] file scanning helpers or file metadata builders
+- [ ] phase 3 AST extraction pipeline
+- [ ] phase 4 graph replacement helpers
+- [ ] phase 6 reference edge storage and invalidation helpers
+- [ ] existing DB access layer
 
-Watch mode sits on top of those layers.
-It orchestrates them.
-It should not duplicate them.
+Do not create a second indexing pipeline for watch mode.
 
----
+***
 
-## Core idea
+## Required Outputs
 
-Watch mode should observe filesystem changes and trigger the smallest reasonable graph update.
+Phase 9 must produce these capabilities:
 
-For each relevant event:
+- [ ] watch one repository for file changes
+- [ ] normalize raw watcher events into one internal event shape
+- [ ] ignore unsupported and ignored-path events
+- [ ] debounce noisy events
+- [ ] deduplicate changed paths per batch
+- [ ] incrementally reindex created files
+- [ ] incrementally reindex modified files
+- [ ] cleanly remove deleted files
+- [ ] invalidate stale reference state for changed files
+- [ ] preserve previous valid graph state on temporary parse failure
+- [ ] expose a CLI watch command
 
-- identify which file changed
-- determine if the file is supported
-- rescan metadata
-- re-extract AST structure
-- replace graph state for that file
-- invalidate or refresh affected reference data
-- update freshness metadata
+Do not make watch mode responsible for plan evaluation or MCP orchestration.
 
-That is the whole job.
+***
 
----
+## Required File Layout
 
-## Recommended package structure additions
+Create or extend these files:
 
-Add these files:
+- [ ] `src/repo_context/indexing/__init__.py`
+- [ ] `src/repo_context/indexing/watch.py`
+- [ ] `src/repo_context/indexing/events.py`
+- [ ] `src/repo_context/indexing/incremental.py`
+- [ ] `src/repo_context/indexing/invalidation.py`
+- [ ] `src/repo_context/indexing/scheduler.py`
 
-```text
-src/
-  repo_context/
-    indexing/
-      __init__.py
-      watch.py
-      events.py
-      incremental.py
-      invalidation.py
-      scheduler.py
-```
+Reuse existing files if they already exist.
 
-### Why this split
+Do not collapse the whole watch loop into one file.
 
-- `watch.py`: filesystem watcher setup
-- `events.py`: normalize raw file events
-- `incremental.py`: changed-file reindex flow
-- `invalidation.py`: reference invalidation rules
-- `scheduler.py`: debounce and batch behavior
+***
 
-This keeps the watch layer from turning into one giant unstable loop.
+## Supported File Policy
 
----
+Apply these rules exactly.
 
-## Watch mode design principles
+- [ ] only react to supported source files
+- [ ] for v1, supported source files are `.py` files
+- [ ] ignore unsupported extensions
+- [ ] ignore temp files
+- [ ] ignore swap files
+- [ ] ignore ignored directories such as `.git`, `.venv`, and `node_modules`
+- [ ] use the same ignore rules as repo scanning
+- [ ] do not create a second inconsistent ignore system
 
-### Principle 1: Incremental by default
+No event for an ignored or unsupported file may trigger indexing.
 
-Do not full-reindex the whole repo for one file save unless you truly have no better option.
+***
 
-### Principle 2: Debounce noisy events
+## Event Model
 
-Editors often generate multiple save-related events.
-You need batching and debounce, or watch mode will thrash.
+Use one normalized internal event shape.
 
-### Principle 3: File-level replacement is the main primitive
+### Required normalized event fields
 
-The graph already supports replacing one file’s nodes and edges.
-Use that.
-Do not invent a new mutation model.
+- [ ] `event_type`
+- [ ] `absolute_path`
+- [ ] `repo_relative_path`
+- [ ] `is_supported`
+- [ ] optional `old_absolute_path`
 
-### Principle 4: Reference freshness should be explicit
+### Allowed `event_type` values
 
-You do not need to fully recompute all references after every save.
-You do need to know what became stale.
+- [ ] `created`
+- [ ] `modified`
+- [ ] `deleted`
 
-### Principle 5: Deletion must be handled cleanly
+### Rename rule
 
-Deleted files should not leave dead nodes and edges behind.
+- [ ] rename support is optional in v1
+- [ ] if rename is handled, model it as delete old path plus create new path
+- [ ] do not attempt cross-platform perfect rename semantics
 
----
+***
 
-## Change types to handle
+## Step 1 - Watcher Setup
 
-At minimum, watch mode should support:
+### File
 
-- file created
-- file modified
-- file deleted
-- optionally file moved or renamed
+- [ ] `src/repo_context/indexing/watch.py`
 
-### Practical truth
+### Implement
 
-Rename events are often messy across operating systems and tools.
-For v1, it is totally acceptable to model a rename as:
-- delete old path
-- create new path
+Add watcher setup for one local repository.
 
-That is simpler and good enough.
+### Required behavior
 
----
+- [ ] watch the repo root recursively
+- [ ] receive raw file events
+- [ ] pass raw events into event normalization
+- [ ] skip unsupported or ignored paths
+- [ ] feed normalized events into the scheduler
+- [ ] process scheduler batches
 
-## Supported file policy
+### Library recommendation rule
 
-Only react to supported source files.
+- [ ] use `watchdog` for v1 unless the project already chose another local watcher library
+- [ ] do not add polling fallback complexity unless actually needed
 
-For v1:
-- `.py` files
+### Do not do
 
-Ignore:
-- temp files
-- editor swap files
-- unsupported extensions
-- ignored directories like `.git`, `.venv`, `node_modules`
+- [ ] do not implement multi-repo watching in v1
+- [ ] do not process raw watcher events directly without normalization
 
-The same filtering rules from repo scanning should apply here.
-Do not create a second ignore system.
+### Done when
 
----
+- [ ] the project can observe local repository file changes and route them into the incremental pipeline
 
-## Event normalization
+***
 
-Raw watcher libraries often emit noisy, inconsistent event objects.
+## Step 2 - Event Normalization
 
-Create a normalized event shape in `events.py`.
+### File
 
-Recommended shape:
+- [ ] `src/repo_context/indexing/events.py`
 
-```python
-from dataclasses import dataclass
-from typing import Literal, Optional
+### Implement
 
-@dataclass
-class FileChangeEvent:
-    event_type: Literal["created", "modified", "deleted"]
-    absolute_path: str
-    repo_relative_path: str
-    is_supported: bool
-    old_absolute_path: Optional[str] = None
-```
+- [ ] `FileChangeEvent`
+- [ ] `normalize_event(raw_event, repo_root, config)`
 
-### Why this matters
+### Exact behavior
 
-The rest of your pipeline should not care about watcher-library weirdness.
+- [ ] convert watcher-specific event objects into the internal event shape
+- [ ] compute `repo_relative_path`
+- [ ] compute `is_supported`
+- [ ] return `None` for ignored or unusable events
+- [ ] normalize create events to `created`
+- [ ] normalize modify events to `modified`
+- [ ] normalize delete events to `deleted`
 
----
+### Rename handling rule
 
-## Recommended watcher library approach
+- [ ] if the watcher library exposes moves and you choose to support them, normalize them as:
+  - [ ] one delete event for old path
+  - [ ] one create event for new path
+- [ ] otherwise ignore move-specific richness in v1
 
-Use a cheap and common local library for filesystem watching.
+### Do not do
 
-Good practical options include:
-- `watchdog`
-- polling fallback if needed
+- [ ] do not leak watcher-library event types outside this module
+- [ ] do not trust editor temp-file noise as meaningful source changes
 
-My blunt recommendation:
-- start with `watchdog`
-- only add fallback complexity if it is actually needed
+### Done when
 
-This is a solo-dev project.
-Do not overengineer platform support on day 1.
+- [ ] the rest of the system sees one stable event shape only
 
----
+***
 
-## Debounce and batching
+## Step 3 - Scheduler and Debounce
 
-This phase absolutely needs debounce.
+### File
 
-Editors often trigger multiple events for one save.
-Without debounce:
-- you reindex the same file repeatedly
-- the LSP layer gets hammered
-- CPU waste increases
-- the graph may churn unnecessarily
+- [ ] `src/repo_context/indexing/scheduler.py`
 
-### Recommended debounce behavior
+### Implement
 
-- collect changed file paths for a short window, such as `250ms` to `1000ms`
-- batch them
-- process each file once per batch
+Add a tiny sequential debounce and batching scheduler.
 
-### Why batching matters
+### Required responsibilities
 
-If a save triggers:
-- file write
-- temp file swap
-- metadata update
+- [ ] accept normalized events
+- [ ] deduplicate by repo-relative path
+- [ ] batch events within a debounce window
+- [ ] emit ready batches for processing
+- [ ] avoid overlapping writes for the same repo
 
-You still want one reindex action, not three.
+### Required debounce rule
 
----
+- [ ] default debounce window must be configurable
+- [ ] recommended default range is `250ms` to `1000ms`
+- [ ] process each path at most once per batch
 
-## Incremental reindex responsibilities
+### Required processing rule
 
-Create `incremental.py`.
+- [ ] one worker only in v1
+- [ ] sequential batch handling only in v1
 
-Recommended function:
+### Do not do
 
-```python
-def reindex_changed_file(conn, repo_root, absolute_path, config) -> dict:
-    ...
-```
+- [ ] do not allow concurrent DB writes for the same repo in v1
+- [ ] do not process one raw modify burst as many separate file reindexes
 
-### What it should do for created or modified files
+### Done when
 
-1. confirm the file still exists
-2. confirm it is supported
-3. rebuild or upsert the `FileRecord`
-4. parse AST
-5. extract nodes and structural edges
-6. replace stored file graph
-7. mark reference freshness as stale for impacted targets
-8. return a summary
+- [ ] noisy save events collapse into one stable work unit per file path
 
-### Example summary
+***
 
-```json
-{
-  "file_path": "app/services/auth.py",
-  "status": "reindexed",
-  "node_count": 4,
-  "edge_count": 6
-}
-```
+## Step 4 - Event Collapse Rules
 
----
+### File
 
-## Deleted file handling
+- [ ] `src/repo_context/indexing/scheduler.py` or a helper in `events.py`
 
-Deleted files need a separate path.
+### Implement
 
-Create a helper like:
+Add deterministic final-state event collapse for one path inside a batch.
 
-```python
-def handle_deleted_file(conn, repo_id: str, repo_relative_path: str) -> dict:
-    ...
-```
+### Exact collapse rules
 
-### What it should do
+- [ ] repeated `modified` events collapse to one `modified`
+- [ ] `created` followed by `modified` collapses to one effective create-or-modify processing path
+- [ ] latest `deleted` wins over earlier create or modify events in the same batch
+- [ ] one final path must be processed once per batch
 
-1. find the stored file record
-2. delete edges owned by that file
-3. delete nodes owned by that file
-4. delete the file record
-5. invalidate references pointing to symbols that no longer exist if needed
-6. return a summary
+### Do not do
 
-### Why this matters
+- [ ] do not preserve noisy event history if final file state is enough
+- [ ] do not make collapse rules implicit
 
-If you skip deletion handling, the graph becomes trash quickly.
+### Done when
 
----
+- [ ] each batch produces one deterministic final action per affected path
 
-## Reference invalidation strategy
+***
 
-This is the tricky part.
+## Step 5 - Incremental Reindex for Changed File
 
-When a file changes, some reference edges may become stale even if they were not directly stored under that changed file. For example:
-- a changed caller file may alter outgoing references
-- a changed declaration file may affect incoming references to its symbols
+### File
 
-You do not need perfect invalidation in v1.
-You do need an honest policy.
+- [ ] `src/repo_context/indexing/incremental.py`
 
----
+### Implement
 
-## Two valid reference policies
+- [ ] `reindex_changed_file(conn, repo_root, absolute_path, config)`
 
-## Option A: mark references stale, refresh on demand
+### Exact behavior for created or modified files
+
+- [ ] confirm the file currently exists
+- [ ] confirm the file is supported
+- [ ] rebuild or upsert the `FileRecord`
+- [ ] parse AST using the existing phase 3 pipeline
+- [ ] extract nodes and structural edges
+- [ ] replace stored file graph using existing phase 4 helpers
+- [ ] invalidate reference state for impacted symbols and file evidence
+- [ ] return a structured summary
+
+### Required summary fields
+
+- [ ] `file_path`
+- [ ] `status`
+- [ ] `node_count`
+- [ ] `edge_count`
+
+### Allowed `status` values
+
+- [ ] `reindexed`
+- [ ] `skipped`
+- [ ] `parse_failed`
+- [ ] `error`
+
+### Do not do
+
+- [ ] do not full-reindex the entire repo for one file save
+- [ ] do not bypass existing extraction and graph replacement helpers
+
+### Done when
+
+- [ ] one changed file can be incrementally reindexed and replace its graph state cleanly
+
+***
+
+## Step 6 - Deleted File Handling
+
+### File
+
+- [ ] `src/repo_context/indexing/incremental.py`
+
+### Implement
+
+- [ ] `handle_deleted_file(conn, repo_id, repo_relative_path)`
+
+### Exact behavior
+
+- [ ] find the stored file record by repo and relative path
+- [ ] if no file record exists, return a deterministic no-op summary
+- [ ] remove `references` edges whose `evidence_file_id` is that file ID
+- [ ] collect symbol IDs declared in that file
+- [ ] remove edges targeting or sourcing deleted symbols if your graph cleanup layer requires it
+- [ ] delete file-owned nodes
+- [ ] delete the file record
+- [ ] mark affected reference state stale
+- [ ] return a structured summary
+
+### Required summary fields
+
+- [ ] `file_path`
+- [ ] `status`
+- [ ] `deleted_node_count` when available
+- [ ] `deleted_edge_count` when available
+
+### Allowed delete status values
+
+- [ ] `deleted`
+- [ ] `not_tracked`
+- [ ] `error`
+
+### Do not do
+
+- [ ] do not leave dead file records behind
+- [ ] do not leave obvious file-owned graph junk behind
+
+### Done when
+
+- [ ] deleting a tracked file removes its graph state cleanly
+
+***
+
+## Step 7 - Reference Invalidation Helpers
+
+### File
+
+- [ ] `src/repo_context/indexing/invalidation.py`
+
+### Implement
+
+- [ ] `mark_symbols_in_file_stale(conn, file_id)`
+- [ ] `invalidate_reference_summaries_for_file(conn, file_id)`
+- [ ] `collect_impacted_symbol_ids(conn, file_id)`
+
+### Minimum v1 behavior
 
 When a file changes:
-- invalidate reference freshness for symbols in that file
-- optionally invalidate symbols that previously referenced them
-- do not immediately call LSP
 
-Pros:
-- cheap
-- simpler
-- avoids hammering the language server
+- [ ] symbols declared in that file must be treated as structurally refreshed
+- [ ] stored `references` edges whose `evidence_file_id = file_id` must be removed
+- [ ] reference summary availability for symbols declared in that file must be marked stale or unavailable until refreshed again
+- [ ] impacted symbol IDs must be collectable deterministically
 
-Cons:
-- first later request may need refresh
+### Do not do
 
-## Option B: immediately refresh references for affected symbols
+- [ ] do not attempt perfect semantic invalidation in v1
+- [ ] do not pretend references are still fresh after caller-file edits
 
-When a file changes:
-- refresh references right away for touched symbols
+### Done when
 
-Pros:
-- graph stays fresher automatically
+- [ ] the system has one honest explicit invalidation policy for changed files
 
-Cons:
-- can be expensive and noisy during active editing
+***
 
-My blunt recommendation:
-- use Option A for v1
-- mark stale and refresh on demand through explicit tools or later idle-time refresh
+## Step 8 - Reference Cleanup Policy
 
-That is the safer cheap solution.
+### File
 
----
+- [ ] `src/repo_context/indexing/invalidation.py` or `src/repo_context/indexing/incremental.py`
 
-## Freshness invalidation rules
+### Implement
 
-Create `invalidation.py`.
+Apply this exact v1 cleanup policy for changed files:
 
-Recommended helpers:
+- [ ] remove stored `references` edges where `evidence_file_id = changed_file_id`
+- [ ] mark reference data for symbols declared in that file as unavailable or stale
+- [ ] do not automatically recompute references during the file reindex path
 
-```python
-def mark_symbols_in_file_stale(conn, file_id: str) -> None:
-    ...
+### Optional stricter behavior
 
-def invalidate_reference_summaries_for_file(conn, file_id: str) -> None:
-    ...
+- [ ] optionally also remove `references` edges where `to_id` is a symbol declared in the changed file if you intentionally choose the stricter invalidation path
 
-def collect_impacted_symbol_ids(conn, file_id: str) -> list[str]:
-    ...
-```
+### Default recommendation
 
-### Good enough v1 rule
+- [ ] use the minimum required policy above unless stricter invalidation is already easy and consistent
 
-When a file changes:
-- symbols in that file become freshly reindexed structurally
-- any stored reference summaries involving those symbols should be considered stale until refreshed
-- any `references` edges with evidence in that file should be removed and recomputed later
+### Do not do
 
-That is honest and practical.
+- [ ] do not silently keep caller-side reference edges that are now probably stale
+- [ ] do not auto-trigger expensive LSP refresh on every save in v1
 
----
+### Done when
 
-## `references` cleanup policy
+- [ ] references are invalidated honestly and cheaply during watch mode
 
-For changed files, at minimum you should remove:
-- `references` edges whose `evidence_file_id` equals the changed file
+***
 
-### Why
+## Step 9 - Parse Failure Policy
 
-If the changed file contains callers, those reference edges are probably stale.
+### File
 
-### Optional additional invalidation
+- [ ] `src/repo_context/indexing/incremental.py`
 
-If the changed file contains declarations for target symbols:
-- you may also remove `references` edges where `to_id` is one of those symbol IDs
+### Implement
 
-This is more aggressive and often safer.
+Apply this exact policy for temporary parse failures on changed files.
 
-### Practical recommendation
+### Exact behavior
 
-For v1:
-- remove `references` edges with `evidence_file_id = changed_file_id`
-- mark reference data for symbols declared in the changed file as stale
-- refresh later on demand
+If AST parsing fails for a modified or created file:
 
-That is a good balance.
+- [ ] keep the previous valid graph state for that file unchanged
+- [ ] do not replace valid nodes and edges with partial or empty state
+- [ ] record the parse failure in logs or status output
+- [ ] optionally persist file error state if the project already supports it
+- [ ] return a summary with `status = "parse_failed"`
 
----
+### Do not do
 
-## File create flow
+- [ ] do not delete valid graph state because the current file contents are temporarily broken
+- [ ] do not persist partial broken AST output
 
-When a new supported file appears:
+### Done when
 
-1. create or upsert `FileRecord`
-2. AST-parse and extract graph data
-3. replace file graph
-4. mark relevant reference state stale
-5. optionally log summary
+- [ ] temporary syntax errors during editing do not destroy the last known valid graph state
 
-### Important note
+***
 
-A new file may introduce:
-- new declarations
-- new callers
-- new imports
-- new inheritance edges
+## Step 10 - Optional File Error Tracking
 
-So creation is not just metadata insertion.
+### Files to modify
 
----
+- [ ] migrations or DB init, only if you intentionally support persistent file error tracking
+- [ ] related storage helpers if added
 
-## File modify flow
+### Optional implement
 
-When an existing supported file changes:
+- [ ] `file_errors` table
+- [ ] helpers to upsert and clear file parse errors
 
-1. update `FileRecord` metadata and hash
-2. remove stale `references` edges with evidence in that file
-3. re-extract AST nodes and structural edges
-4. replace file graph
-5. mark related reference state stale
-6. optionally schedule later reference refresh
+### Required rule
 
-This is the main path watch mode will hit.
+- [ ] this is optional in phase 9
+- [ ] if added, it must stay small and deterministic
 
----
+### Do not do
 
-## File delete flow
+- [ ] do not block watch mode on this optional table
+- [ ] do not create a large diagnostics subsystem here
 
-When a tracked supported file is deleted:
+### Done when
 
-1. remove stale `references` edges with evidence in that file
-2. collect symbol IDs declared in that file
-3. remove edges targeting or sourced from now-deleted nodes if needed
-4. delete file-owned nodes
-5. delete file record
-6. mark any affected summaries stale
+- [ ] parse failures can optionally be persisted without expanding scope too much
 
-### Important truth
+***
 
-Deletion is the place where lazy cleanup causes the most damage.
-Be explicit and strict here.
+## Step 11 - Batch Processor
 
----
+### File
 
-## Suggested `scheduler.py` behavior
+- [ ] `src/repo_context/indexing/watch.py` or `src/repo_context/indexing/incremental.py`
 
-You want a tiny queue and debounce layer.
+### Implement
 
-Recommended responsibilities:
+- [ ] `process_event_batch(conn, repo_root, events, config)`
 
-- accept normalized file events
-- deduplicate by path
-- collapse multiple modify events into one work item
-- process sequentially or in small batches
-- avoid concurrent writes to the same repo DB
+### Exact behavior
 
-### Why this matters
+- [ ] merge events by repo-relative path
+- [ ] collapse each path to one final effective action
+- [ ] for each final action:
+  - [ ] if final state is delete, run deleted-file flow
+  - [ ] otherwise run changed-file reindex flow
+- [ ] process one file at a time
+- [ ] return a list of structured per-file summaries
 
-SQLite plus multiple overlapping writes plus noisy watcher events is how you create stupid bugs.
+### Do not do
 
-For v1:
-- one worker
-- one repo
-- sequential processing
+- [ ] do not wrap the whole batch in one giant transaction
+- [ ] do not process the same path multiple times in one batch
 
-That is totally fine.
+### Done when
 
----
+- [ ] one batch produces one deterministic incremental indexing result per affected file
 
-## Example watch loop shape
+***
 
-```python
-def run_watch_mode(repo_root, conn, config):
-    scheduler = EventScheduler(debounce_ms=500)
+## Step 12 - Transaction Rules
 
-    for raw_event in watch_filesystem(repo_root):
-        event = normalize_event(raw_event, repo_root, config)
-        if event is None or not event.is_supported:
-            continue
+### Files to verify
 
-        scheduler.submit(event)
+- [ ] `src/repo_context/indexing/incremental.py`
+- [ ] graph replacement helpers from earlier phases
 
-        for batch in scheduler.ready_batches():
-            process_event_batch(conn, repo_root, batch, config)
-```
+### Implement
 
-This is enough conceptually.
-Do not make the loop fancy.
+Apply these exact transaction rules:
 
----
+- [ ] use one transaction per changed file update
+- [ ] use one transaction per deleted file cleanup
+- [ ] rollback a file update cleanly on failure
+- [ ] do not let one file failure destroy the whole batch
 
-## Batch processing strategy
+### Do not do
 
-Create one batch processor.
+- [ ] do not use one giant transaction for a noisy batch
+- [ ] do not leave half-updated file graph state
 
-Recommended helper:
+### Done when
 
-```python
-def process_event_batch(conn, repo_root, events: list[FileChangeEvent], config) -> list[dict]:
-    ...
-```
+- [ ] file-level work is isolated, debuggable, and rollback-safe
 
-### Good behavior
+***
 
-- merge events by repo-relative path
-- if both create and modify appear, treat as modify/create final state
-- if delete is the latest event, handle as delete
-- process each final path once
+## Step 13 - CLI Watch Command
 
-### Why this matters
+### Files to modify
 
-You want final-state behavior, not event-history worship.
+- [ ] existing CLI module from earlier phases
 
----
+### Implement
 
-## Suggested event collapse rules
+Add:
 
-For one file path inside a batch:
-
-- latest `deleted` wins over previous modify/create
-- `created` followed by `modified` becomes one create/modify handling path
-- repeated `modified` becomes one modified event
-
-Keep the rules tiny and deterministic.
-
----
-
-## Database transaction strategy
-
-For each changed file:
-- use one transaction per file update
-
-Why:
-- file-level replacement is already a clean unit of work
-- easier rollback on parse failures
-- easier debugging
-
-For a batch:
-- do not put the whole batch in one giant transaction unless you truly need that
-
-That just makes rollback painful.
-
----
-
-## Parse failure policy in watch mode
-
-Files may be temporarily invalid during active editing.
-
-You need a policy.
-
-## Recommended v1 policy
-
-If AST parsing fails for a modified file:
-
-- keep the previous valid graph state for that file
-- mark the file as having a parse error or stale state
-- do not replace valid graph data with broken partial data
-- surface the failure in logs or status
-
-### Why this is the right call
-
-During live editing, temporary syntax errors are normal.
-Destroying previously valid graph state every time the user types a broken line would be dumb.
-
-This is one of the few places where “do not replace on failure” is better than strict replacement.
-
----
-
-## Parse error tracking
-
-You may want a small table for indexing or watch errors.
-
-Optional table:
-
-```sql
-CREATE TABLE IF NOT EXISTS file_errors (
-  file_id TEXT NOT NULL,
-  error_type TEXT NOT NULL,
-  message TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (file_id, error_type)
-);
-```
-
-### Why this is useful
-
-It lets you record:
-- syntax errors
-- unreadable files
-- temporary extraction failures
-
-This is optional but smart.
-
----
-
-## CLI additions for this phase
-
-Add a command like:
-
-```text
-repo-context watch <repo-root>
-```
-
-### What it should do
-
-- start the watcher
-- print small incremental summaries
-- keep running until stopped
+- [ ] `repo-context watch <repo-root>`
 
 ### Optional flags
 
-- `--debounce-ms`
-- `--verbose`
-- `--no-reference-invalidation`
-- `--db-path`
+- [ ] `--debounce-ms`
+- [ ] `--verbose`
+- [ ] `--no-reference-invalidation`
+- [ ] `--db-path`
 
-Keep defaults sane.
-Do not require too much configuration.
+### Required behavior
 
----
+- [ ] start watcher
+- [ ] print small incremental summaries
+- [ ] keep running until stopped
+- [ ] fail clearly on startup errors
 
-## MCP interaction with watch mode
+### Do not do
 
-The MCP server and watch mode can coexist in two ways.
+- [ ] do not hide watch mode under unrelated commands
+- [ ] do not require excessive configuration for normal use
 
-## Option A: separate processes
+### Done when
 
-- one watch-mode process updates the graph
-- one MCP process serves queries
+- [ ] watch mode can be launched from CLI and stay running as a local dev workflow tool
 
-Pros:
-- simple mental model
-- less coupling
+***
 
-Cons:
-- two processes to run
+## Step 14 - MCP Coexistence Policy
 
-## Option B: integrated watch option in the MCP server
+### Files to verify
 
-- MCP server starts watch mode too
+- [ ] watch mode docs or CLI help text
+- [ ] server startup conventions if relevant
 
-Pros:
-- fewer moving parts for the user
+### Implement
 
-Cons:
-- more coupling
-- more complexity in the server process
+Use this v1 coexistence policy:
 
-My recommendation:
-- start with Option A
-- only integrate later if you really want a single process
+- [ ] watch mode runs as a separate process from the MCP server by default
+- [ ] do not tightly integrate watch mode into MCP server startup in v1
 
-That is cleaner for v1.
+### Do not do
 
----
+- [ ] do not couple file watching directly into the MCP server lifecycle yet
+- [ ] do not require MCP to be running for watch mode to work
 
-## Testing plan
+### Done when
 
-This phase needs event-driven tests.
+- [ ] watch mode remains a clean local updater instead of inflating server complexity
 
-### `test_modify_event_reindexes_file`
+***
 
-Verify:
-- a changed `.py` file updates file metadata
-- nodes and structural edges are replaced
+## Step 15 - Tests
 
-### `test_create_event_adds_file`
+### Files to create or modify
 
-Verify:
-- a new file becomes a `FileRecord`
-- AST nodes appear
-- graph state is stored
+- [ ] phase 9 tests under `tests/`
 
-### `test_delete_event_removes_file_graph`
+### Test strategy
 
-Verify:
-- file record is removed
-- nodes for the file are removed
-- edges owned by the file are removed
+- [ ] prefer temp directories and real small file mutations over excessive mocking
+- [ ] test normalized events, batch collapse, incremental indexing, deletion, invalidation, and parse failure behavior
 
-### `test_ignored_file_event_is_skipped`
+### Implement these tests
 
-Verify:
-- ignored directories and unsupported files do not trigger indexing
+- [ ] `test_modify_event_reindexes_file`
+- [ ] `test_create_event_adds_file`
+- [ ] `test_delete_event_removes_file_graph`
+- [ ] `test_ignored_file_event_is_skipped`
+- [ ] `test_event_batch_deduplicates_paths`
+- [ ] `test_reference_edges_for_changed_file_are_invalidated`
+- [ ] `test_parse_failure_keeps_previous_graph_state`
+- [ ] `test_rename_behaves_as_delete_plus_create` if rename normalization is supported
 
-### `test_event_batch_deduplicates_paths`
+### Exact test assertions
 
-Verify:
-- multiple modify events collapse into one effective operation
+#### `test_modify_event_reindexes_file`
+- [ ] changed `.py` file updates file metadata
+- [ ] stored nodes for the file are replaced
+- [ ] stored structural edges for the file are replaced
 
-### `test_reference_edges_for_changed_file_are_invalidated`
+#### `test_create_event_adds_file`
+- [ ] new supported file creates or upserts file record
+- [ ] AST nodes appear
+- [ ] graph state is stored
 
-Verify:
-- `references` edges with `evidence_file_id` matching changed file are removed
+#### `test_delete_event_removes_file_graph`
+- [ ] file record is removed
+- [ ] file-owned nodes are removed
+- [ ] file-owned edges are removed
 
-### `test_parse_failure_keeps_previous_graph_state`
+#### `test_ignored_file_event_is_skipped`
+- [ ] ignored directories do not trigger indexing
+- [ ] unsupported files do not trigger indexing
 
-Verify:
-- broken temporary code does not erase previous valid graph state
+#### `test_event_batch_deduplicates_paths`
+- [ ] repeated events for same path collapse to one effective operation
 
-### `test_rename_behaves_as_delete_plus_create`
+#### `test_reference_edges_for_changed_file_are_invalidated`
+- [ ] `references` edges with matching `evidence_file_id` are removed
 
-If you support rename normalization, verify final behavior.
+#### `test_parse_failure_keeps_previous_graph_state`
+- [ ] temporary broken code does not erase previous valid nodes
+- [ ] status reports parse failure honestly
 
----
+#### `test_rename_behaves_as_delete_plus_create`
+- [ ] old path graph state is removed
+- [ ] new path graph state is added
 
-## Suggested fixture strategy
+### Do not do
 
-Use temporary directories in tests.
+- [ ] do not rely only on smoke tests
+- [ ] do not require a real language server for the whole watch suite
 
-A good test flow is:
+### Done when
 
-1. create a small repo fixture
-2. run initial scan and index
-3. mutate a file
-4. emit normalized event
-5. run batch processor
-6. assert graph changes
+- [ ] watch mode behavior is covered by deterministic incremental tests
 
-This is much easier to trust than mocking everything.
+***
 
----
+## Step 16 - Final Verification
 
-## Acceptance checklist
+Before marking phase 9 complete, verify all of the following:
 
-Phase 9 is done when all of this is true:
+- [ ] the watcher can observe supported file changes
+- [ ] events are normalized into a stable internal shape
+- [ ] debounce and path deduplication exist
+- [ ] file create events add file and graph state
+- [ ] file modify events update file and graph state
+- [ ] file delete events cleanly remove file and graph state
+- [ ] `references` edges for changed files are invalidated
+- [ ] staleness is tracked honestly after changes
+- [ ] temporary parse failures do not destroy last valid graph state
+- [ ] CLI watch mode runs
+- [ ] tests pass
 
-- The watcher can observe supported file changes.
-- Events are normalized into a stable internal shape.
-- Debounce and path deduplication exist.
-- File create events add file and graph state.
-- File modify events update file and graph state.
-- File delete events cleanly remove file and graph state.
-- `references` edges for changed files are invalidated.
-- Staleness is tracked honestly after changes.
-- Temporary parse failures do not destroy last valid graph state.
-- CLI watch mode runs.
-- Tests pass.
+Do not mark phase 9 done until every box above is true.
 
----
+***
 
-## Common mistakes to avoid
+## Required Execution Order
 
-### Mistake 1: Reindexing the whole repo for every save
+Implement in this order and do not skip ahead:
 
-That defeats the point of watch mode.
+- [ ] Step 1 watcher setup
+- [ ] Step 2 event normalization
+- [ ] Step 3 scheduler and debounce
+- [ ] Step 4 event collapse rules
+- [ ] Step 5 incremental reindex for changed file
+- [ ] Step 6 deleted file handling
+- [ ] Step 7 reference invalidation helpers
+- [ ] Step 8 reference cleanup policy
+- [ ] Step 9 parse failure policy
+- [ ] Step 10 optional file error tracking
+- [ ] Step 11 batch processor
+- [ ] Step 12 transaction rules
+- [ ] Step 13 CLI watch command
+- [ ] Step 14 MCP coexistence policy
+- [ ] Step 15 tests
+- [ ] Step 16 final verification
 
-### Mistake 2: Trusting raw watcher events directly
+***
 
-Normalize and debounce them first.
+## Phase 9 Done Definition
 
-### Mistake 3: Deleting valid graph state on temporary syntax errors
+Phase 9 is complete only when all of these are true:
 
-That makes watch mode miserable during real editing.
-
-### Mistake 4: Forgetting reference invalidation
-
-Structural graph refresh alone is not enough once references exist.
-
-### Mistake 5: Running many overlapping DB writes
-
-Keep processing sequential for v1.
-SQLite likes boring.
-
-### Mistake 6: Building a huge distributed architecture for local watching
-
-That is pure overkill here.
-
----
-
-## What phase 10 will likely add
-
-Once watch mode exists, the next useful phase is usually one of these:
-
-- a plan-oriented MCP workflow tool
-- approval-aware agent integration
-- stale-context coordination between watch mode and MCP tools
-- richer incremental reference refresh behavior
-
-That depends on how far you want the workflow automation to go.
-
----
-
-## Final guidance
-
-This phase is mostly orchestration discipline.
-
-The individual building blocks already exist.
-Watch mode just connects them into a live update loop.
-
-Keep it simple:
-
-- watch files
-- debounce noise
-- reindex changed files
-- delete removed files
-- invalidate stale references
-- preserve last valid state when parsing fails
-
-That is enough to make the system feel alive without making it fragile.
-```
+- [ ] phase 1 through phase 8 contracts remain intact
+- [ ] watch mode is incremental by default
+- [ ] event handling is normalized and debounced
+- [ ] file graph replacement is reused as the core write primitive
+- [ ] reference invalidation is honest
+- [ ] parse failures preserve last valid graph state
+- [ ] watch mode remains separate from MCP server lifecycle by default
+- [ ] tests pass

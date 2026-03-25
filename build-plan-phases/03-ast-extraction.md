@@ -1,5 +1,3 @@
-Absolutely. Here is the rigid checkbox version, written to leave as little room for interpretation as possible and to stay consistent with an already-built phase 1 and phase 2.
-
 # 03 AST Extraction - Exact Implementation Checklist
 
 ## Objective
@@ -1066,5 +1064,3 @@ Phase 3 is complete only when all of these are true:
 - [ ] broken files fail visibly without collapsing the full run
 - [ ] tests pass
 - [ ] no out-of-scope features were added
-
-If you want, next I can do the same rigid no-interpretation rewrite for phase 4 too, so the whole plan stays in one consistent format.

@@ -115,7 +115,7 @@ def scan_repository(repo_root: str | Path, config) -> tuple[RepoRecord, list[Fil
     results: list[FileRecord] = []
     
     for dirpath, dirnames, filenames in os.walk(root):
-        # Prune ignored directories in place
+        # Ignored directories
         dirnames[:] = [
             d for d in dirnames
             if not should_ignore_dir(d, config.ignored_dirs)
@@ -129,7 +129,7 @@ def scan_repository(repo_root: str | Path, config) -> tuple[RepoRecord, list[Fil
             
             results.append(build_file_record(repo.id, root, file_path))
     
-    # Sort deterministically by file_path
+    # Sort by file_path
     results.sort(key=lambda x: x.file_path)
     
     return repo, results

@@ -1,1039 +1,881 @@
-```md
-# 06-lsp-reference-enrichment.md
+# 06 LSP Reference Enrichment - Exact Implementation Checklist
 
-## Purpose
+## Objective
 
-This phase adds selective LSP enrichment to the stored graph.
+Implement phase 6 of the repository indexing pipeline.
 
-The goal is not to turn the system into a full IDE.
-The goal is to add the single highest-value semantic relationship for version 1:
+Phase 6 must add one and only one LSP-based semantic enrichment to the stored graph:
 
 - `references`
 
-This phase takes the structural graph built from AST and enriches it with reference information returned by a language server. Those reference locations are then mapped back to the internal graph so the system can answer questions like:
+Phase 6 must use a Python language server to find usage locations for a chosen target symbol, map those usage locations back to internal graph symbols, and persist `references` edges between stable node IDs. The Language Server Protocol defines `textDocument/references` and its `ReferenceContext.includeDeclaration` flag, which is the exact feature surface needed here. [microsoft.github](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/)
 
-- where is this symbol used
-- how many places reference it
-- how many files reference it
-- how many modules reference it
-- what symbol contains the usage site
-
-This phase is intentionally narrow.
-It should not implement rename, hover, completion, diagnostics, or every other LSP feature.
-
----
-
-## Why this phase matters
-
-AST tells you what exists.
-LSP helps tell you where it is used.
-
-That is a big jump in usefulness.
-
-Without references:
-- the graph knows structure, but not dependency pressure
-- the agent can inspect symbols, but not blast radius
-- plan review is weaker because usage spread is unknown
-
-With references:
-- you get much better breakage signals
-- you can build `referenced_by` queries cheaply
-- later risk evaluation becomes much more useful
-
-This is why LSP is worth adding even if only for one feature.
-
----
-
-## Phase goals
-
-By the end of this phase, you should have:
-
-- a minimal LSP integration layer
-- the ability to locate a symbol declaration position
-- the ability to request `references` for a symbol
-- mapping from LSP locations back to internal graph symbols when possible
+Phase 6 must provide:
+- minimal LSP client support for references
+- declaration position resolution for one target symbol
+- reference location retrieval from LSP
+- mapping from returned locations back to internal graph symbols
 - persisted `references` edges
-- derived `referenced_by` queries from reverse lookup
-- reference counts
-- referencing file counts
-- referencing module counts
-- optional refresh behavior for references
-- tests for mapping and enrichment
+- reverse `referenced_by` queries derived from stored `references` edges
+- reference summary stats
+- CLI commands for refresh and inspection
+- tests for mapping, replacement, and stats
 
----
-
-## Phase non-goals
-
-Do **not** do any of this in phase 6:
-
-- hover support
-- rename support
-- diagnostics support
+Phase 6 must not provide:
+- hover
+- rename
+- diagnostics
+- completion
 - code actions
 - semantic tokens
-- completion
-- full workspace symbol search
-- plan risk scoring
-- MCP server work
+- workspace symbols
+- risk scoring
+- MCP tools
 - watch mode
 
-This phase is only about reference enrichment.
+***
 
----
+## Consistency Rules
 
-## Why LSP is being used selectively
+These rules are mandatory.
 
-This project already has a structural graph from AST.
-That means the language server is not the source of truth for everything.
+- [ ] Reuse the existing phase 1 through phase 5 models, graph storage, graph query helpers, naming rules, and context builder contracts.
+- [ ] Do not invent a second semantic graph separate from the existing nodes and edges tables.
+- [ ] Reuse the existing `Edge` storage model and persist `references` as normal graph edges.
+- [ ] Store only `references` edges as truth.
+- [ ] Derive `referenced_by` by reverse lookup from stored `references` edges.
+- [ ] Do not store both `references` and `referenced_by` as separate persisted truths.
+- [ ] Keep the LSP layer narrow and disciplined.
+- [ ] Keep mapping confidence explicit.
+- [ ] Keep refresh behavior deterministic.
+- [ ] Keep unavailable references distinct from zero references.
 
-That is good.
+***
 
-The LSP layer should only provide what AST cannot easily provide well enough in v1:
-- symbol references
+## Required Inputs
 
-That keeps the system simpler and avoids overcommitting to a huge LSP implementation.
+Phase 6 must consume these existing inputs:
 
----
+- [ ] stored nodes from phase 4
+- [ ] stored edges from phase 4
+- [ ] symbol `range_json`
+- [ ] symbol `selection_range_json`
+- [ ] symbol `uri`
+- [ ] repository root
+- [ ] a working Python language server process
+- [ ] the phase 5 context builder
 
-## Inputs and outputs
+Do not add new mandatory protocol features beyond what this phase needs.
 
-## Inputs
+***
 
-This phase depends on earlier phases and uses:
+## Required Outputs
 
-- stored nodes
-- stored edges
-- symbol ranges and selection ranges
-- file URIs
-- repo root
-- a working Python language server process
+Phase 6 must produce these capabilities:
 
-## Outputs
+- [ ] resolve the best declaration query position for a symbol
+- [ ] call the language server for references of that symbol
+- [ ] receive reference locations
+- [ ] map each usage location to the smallest containing internal symbol when possible
+- [ ] fall back to the module node when no smaller containing symbol exists
+- [ ] build `references` edges
+- [ ] persist `references` edges
+- [ ] replace stale reference edges for one target symbol
+- [ ] list reference edges for one target symbol
+- [ ] derive `referenced_by` from stored reverse lookup
+- [ ] compute reference stats
+- [ ] enrich phase 5 `SymbolContext.reference_summary`
+- [ ] expose CLI refresh and inspection commands
 
-This phase produces:
+Do not add any other LSP-powered graph enrichment in this phase.
 
-- `references` edges
-- reference summary stats
-- reverse `referenced_by` query support
-- enriched symbol context helpers
-- refresh utilities for selected symbols
+***
 
----
+## Required File Layout
 
-## Core idea
+Create or extend these files:
 
-For a chosen target symbol:
+- [ ] `src/repo_context/lsp/__init__.py`
+- [ ] `src/repo_context/lsp/client.py`
+- [ ] `src/repo_context/lsp/protocol.py`
+- [ ] `src/repo_context/lsp/references.py`
+- [ ] `src/repo_context/lsp/mapper.py`
+- [ ] `src/repo_context/lsp/resolver.py`
+- [ ] `src/repo_context/graph/references.py`
 
-1. find its declaration location
-2. pick the best position to ask LSP about, usually `selection_range.start`
-3. ask the language server for references
-4. get back a list of document locations
-5. map each usage location back to the smallest internal symbol that contains it
-6. create a `references` edge from the containing symbol to the target symbol
-7. persist those edges
-8. derive `referenced_by` by reverse-querying the same edges
+Reuse existing files if they already exist.
 
-That is the whole job of this phase.
+Do not create a generic full-IDE abstraction layer.
 
----
+***
 
-## Architecture additions
+## LSP Scope Rules
 
-Add these files:
+Apply these scope rules exactly.
 
-```text
-src/
-  repo_context/
-    lsp/
-      __init__.py
-      client.py
-      protocol.py
-      references.py
-      mapper.py
-      resolver.py
-    graph/
-      references.py
-```
+### Allowed LSP concepts
 
-### Why this split
+- [ ] `TextDocumentIdentifier`
+- [ ] `Position`
+- [ ] `Range`
+- [ ] `Location`
+- [ ] `ReferenceParams`
+- [ ] `textDocument/references`
 
-- `client.py`: low-level language-server communication
-- `protocol.py`: request and response helpers
-- `references.py`: orchestration for finding references
-- `mapper.py`: map LSP locations back to graph symbols
-- `resolver.py`: choose declaration positions and target documents
-- `graph/references.py`: graph-level reference stats and reverse lookups
+### Forbidden LSP concepts in phase 6
 
-Keep the transport and the graph mapping separate.
+- [ ] hover
+- [ ] rename
+- [ ] diagnostics
+- [ ] completion
+- [ ] code actions
+- [ ] semantic tokens
+- [ ] workspace symbol search
+- [ ] any protocol feature not required for `references`
 
----
+Do not expand protocol scope.
 
-## LSP design principles
+***
 
-### Principle 1: LSP enriches the graph, it does not replace it
+## Edge Truth Rules
 
-The graph already exists.
-LSP only adds a high-value relationship.
+Apply these rules exactly.
 
-### Principle 2: Always map back to internal graph identity
+- [ ] every semantic usage found in this phase must be stored as one `references` edge
+- [ ] `kind` must be `references`
+- [ ] `from_id` must be the internal symbol that contains the usage site
+- [ ] `to_id` must be the target symbol being referenced
+- [ ] `source` must be `lsp`
+- [ ] `referenced_by` must never be stored as a separate edge kind
+- [ ] reverse lookup must be derived from `references`
 
-Raw LSP locations are not enough.
-You want graph edges between stable node IDs.
+***
 
-### Principle 3: Be honest about uncertainty
+## Query Position Rules
 
-Sometimes mapping will be fuzzy or impossible.
-Record confidence instead of pretending every match is perfect.
+Apply these rules exactly for LSP requests.
 
-### Principle 4: Reverse lookup should be derived
+- [ ] prefer `selection_range_json.start` as the LSP query position
+- [ ] if `selection_range_json` is missing, use `range_json.start`
+- [ ] if both are missing, fail clearly
+- [ ] do not guess positions from symbol names or text search
 
-Store `references`.
-Derive `referenced_by` by querying reverse direction.
-Do not create two competing truths.
+The LSP `references` request should use `includeDeclaration = false`, because the protocol supports that flag and it avoids treating the declaration site as a usage site when the server respects it. [github](https://github.com/python-lsp/python-lsp-server/issues/439)
 
----
+***
 
-## Minimal LSP concepts you need
+## Mapping Rules
 
-You do not need the whole LSP protocol surface.
+Apply these rules exactly for mapping LSP locations to internal graph symbols.
 
-For this phase, the useful concepts are basically:
+- [ ] resolve the file by exact URI match
+- [ ] load all nodes for that file
+- [ ] identify which node ranges contain the usage location
+- [ ] choose the smallest containing node
+- [ ] if no node contains the usage, fall back to the module node for that file
+- [ ] if no module node exists, skip the location
+- [ ] assign confidence based on mapping quality
+- [ ] do not fabricate resolved symbols when mapping fails
 
-- `TextDocumentIdentifier`
-- `Position`
-- `Range`
-- `Location`
-- `ReferenceParams`
+The smallest-containing-range strategy is consistent with established graph/range containment ideas, where innermost matching ranges are preferred when multiple ranges cover a position. [microsoft.github](https://microsoft.github.io/language-server-protocol/specifications/lsif/0.4.0/specification/)
 
-That is enough for one request type:
-- find references
+***
 
----
+## Confidence Rules
 
-## What the LSP client should do
+Apply these confidence rules exactly.
 
-The minimal LSP client should be able to:
+- [ ] exact containing symbol match confidence = `0.9`
+- [ ] module fallback match confidence = `0.7`
+- [ ] weird partial or degraded match confidence = `0.5` only if such a case is implemented explicitly
+- [ ] do not assign `1.0` confidence to mapped LSP references in v1
+- [ ] do not hide low-confidence mappings
 
-- start or connect to a Python language server
-- open or track text documents if needed
-- send a references request for one symbol position
-- return the resulting locations
-- shut down cleanly
+If no degraded partial-match mode is implemented, only use `0.9` and `0.7`.
 
-### Important rule
+***
 
-Keep the client minimal.
-Do not let it become an IDE framework.
+## Duplicate Handling Rules
 
----
+Apply these rules exactly.
 
-## Choosing a language server
+- [ ] deduplicate reference edges by:
+  - target symbol ID
+  - source symbol ID
+  - evidence URI
+  - evidence start line
+  - evidence start character
+- [ ] keep one stored edge per concrete usage site
+- [ ] do not store duplicated edges returned by the language server
 
-You have options like:
-- Pyright-based servers
-- Jedi-based setups
-- pylsp
+***
 
-For v1, pick one working Python LSP and stick to it.
+## Self Reference Rules
 
-The exact server matters less than the contract:
-- given a file URI and position, return references
+Apply these rules exactly.
 
-Do not spend too much time comparing language servers unless one clearly breaks your use case.
+- [ ] keep self references in v1
+- [ ] do not filter out self references
+- [ ] store them the same way as other reference edges
 
----
+Do not add self-reference filtering in this phase.
 
-## Declaration resolution
+***
 
-Before asking for references, you need the best position for the target symbol.
+## Refresh Rules
 
-### Best rule
+Apply these rules exactly.
+
+- [ ] use on-demand refresh per target symbol in v1
+- [ ] do not implement full repo-wide reference refresh orchestration in this phase
+- [ ] when refreshing one target symbol, replace old `references` edges for that target
+- [ ] replacement must be performed by `to_id = target_symbol_id`
+
+Do not add background refresh behavior.
+
+***
+
+## Step 1 - Minimal LSP Client
+
+### File
+
+- [ ] `src/repo_context/lsp/client.py`
+
+### Implement
+
+Add a minimal client that can:
+
+- [ ] start or connect to one Python language server
+- [ ] send a `textDocument/references` request
+- [ ] receive and return reference locations
+- [ ] shut down cleanly
+
+### Required public behavior
+
+- [ ] one method to find references for one `(uri, position, include_declaration)` input
+- [ ] return a list of LSP locations in a normalized Python structure
+- [ ] raise a clear failure on protocol or server errors
+
+### Do not do
+
+- [ ] do not add hover support
+- [ ] do not add rename support
+- [ ] do not turn this into an editor framework
+
+### Done when
+
+- [ ] the project can ask one Python language server for references of one symbol position
+
+***
+
+## Step 2 - LSP Protocol Helpers
+
+### File
+
+- [ ] `src/repo_context/lsp/protocol.py`
+
+### Implement
+
+Add tiny helpers for request and response shapes.
+
+### Required behavior
+
+- [ ] build a `textDocument/references` request payload
+- [ ] normalize returned locations into a consistent internal dict shape
+- [ ] preserve `uri` and `range` exactly
+- [ ] support `includeDeclaration=False`
+
+### Do not do
+
+- [ ] do not add helpers for unrelated LSP request types
+
+### Done when
+
+- [ ] request and response shaping is not duplicated across the LSP modules
+
+***
+
+## Step 3 - Declaration Query Position Resolver
+
+### File
+
+- [ ] `src/repo_context/lsp/resolver.py`
+
+### Implement
+
+- [ ] `get_reference_query_position(symbol)`
+
+### Exact behavior
+
+- [ ] if `selection_range_json` exists, return its `start`
+- [ ] else if `range_json` exists, return its `start`
+- [ ] else raise a clear failure
+- [ ] return the position in the existing zero-based line and character shape already used by the project
+
+### Do not do
+
+- [ ] do not guess positions by parsing source text
+- [ ] do not guess positions from symbol name length
+
+### Done when
+
+- [ ] one deterministic function resolves the LSP query position for any symbol with stored ranges
+
+***
+
+## Step 4 - File Resolution by URI
+
+### File
+
+- [ ] `src/repo_context/lsp/resolver.py` or `src/repo_context/lsp/mapper.py`
+
+### Implement
+
+- [ ] `resolve_file_by_uri(conn, uri)`
+
+### Exact behavior
+
+- [ ] look up a stored file record by exact `uri`
+- [ ] return the matching file record
+- [ ] return `None` if no stored file matches
+
+### Do not do
+
+- [ ] do not use fuzzy path matching if exact URI match works
+- [ ] do not guess file ownership from partial path fragments
+
+### Done when
+
+- [ ] every LSP location can be mapped to a stored file record using strict URI matching when the file is known
+
+***
+
+## Step 5 - Range Containment Helper
+
+### File
+
+- [ ] `src/repo_context/lsp/mapper.py`
+
+### Implement
+
+- [ ] `range_contains(outer, inner)`
+
+### Exact behavior
+
+- [ ] return `True` only when `outer.start <= inner.start` and `outer.end >= inner.end`
+- [ ] compare positions by `(line, character)`
+- [ ] assume the project’s stored ranges are zero-based
+- [ ] work with the exact internal range shape already used in the project
+
+### Do not do
+
+- [ ] do not convert to one-based lines here
+- [ ] do not use string comparison for positions
+
+### Done when
+
+- [ ] the project has one deterministic primitive for testing containment of one range inside another
+
+***
+
+## Step 6 - Smallest Containing Symbol Picker
+
+### File
+
+- [ ] `src/repo_context/lsp/mapper.py`
+
+### Implement
+
+- [ ] `pick_smallest_containing_symbol(symbols_in_file, usage_range)`
+
+### Exact behavior
+
+- [ ] consider only symbols with a non-empty `range_json`
+- [ ] keep only symbols whose `range_json` contains `usage_range`
+- [ ] if none match, return `None`
+- [ ] if matches exist, return the smallest containing symbol
+- [ ] determine “smallest” by deterministic range-span ordering
+- [ ] prefer a narrower symbol over a broader one when both contain the usage
+
+### Do not do
+
+- [ ] do not return a list
+- [ ] do not use nondeterministic tie-breaking
+
+### Done when
+
+- [ ] a usage inside a method maps to the method instead of the class or module when all relevant ranges exist
+
+***
+
+## Step 7 - Module Fallback Helper
+
+### File
+
+- [ ] `src/repo_context/lsp/resolver.py` or `src/repo_context/lsp/mapper.py`
+
+### Implement
+
+- [ ] `find_module_node_for_file(symbols_in_file)`
+
+### Exact behavior
+
+- [ ] return the node whose `kind == "module"`
+- [ ] if no module node exists, return `None`
+
+### Do not do
+
+- [ ] do not guess a module node from qualified name string patterns
+- [ ] do not fabricate a missing module node
+
+### Done when
+
+- [ ] unmapped usage sites can fall back cleanly to the file’s module node
+
+***
+
+## Step 8 - Reference Edge Builder
+
+### File
+
+- [ ] `src/repo_context/lsp/references.py`
+
+### Implement
+
+Add a helper to build one `references` edge.
+
+### Required edge fields
+
+- [ ] deterministic `id`
+- [ ] `repo_id`
+- [ ] `kind="references"`
+- [ ] `from_id`
+- [ ] `to_id`
+- [ ] `source="lsp"`
+- [ ] `confidence`
+- [ ] `evidence_file_id`
+- [ ] `evidence_uri`
+- [ ] `evidence_range_json`
+- [ ] `payload_json`
+- [ ] `last_indexed_at`
+
+### Exact edge ID rule
 
 Use:
-- `selection_range.start` if present
+- [ ] `edge:{repo_id}:references:{from_id}->{to_id}:{line}:{character}`
 
-Fallback:
-- `range.start`
+Where:
+- [ ] `line` and `character` come from `evidence_range_json.start`
 
-### Why
+### Do not do
 
-The symbol name location is usually a better anchor for reference lookup than the start of the whole declaration block.
+- [ ] do not use random IDs
+- [ ] do not omit evidence anchor from the ID
 
-### Recommended helper in `resolver.py`
+### Done when
 
-```python
-def get_reference_query_position(symbol: dict) -> dict:
-    ...
-```
+- [ ] every concrete usage site can become one stable `references` edge
 
-Expected behavior:
-- prefer `selection_range_json`
-- fallback to `range_json`
-- fail clearly if neither exists
+***
 
----
+## Step 9 - Replace Reference Edges for Target
 
-## Example reference request shape
+### File
 
-The conceptual request looks like this:
+- [ ] `src/repo_context/lsp/references.py` or `src/repo_context/graph/references.py`
 
-```json
-{
-  "textDocument": {
-    "uri": "file:///workspace/project/app/services/auth.py"
-  },
-  "position": {
-    "line": 20,
-    "character": 8
-  },
-  "context": {
-    "includeDeclaration": false
-  }
-}
-```
+### Implement
 
-### Why `includeDeclaration` should be false
+- [ ] `replace_reference_edges_for_target(conn, target_symbol_id, edges)`
 
-Because you usually want usage sites, not the declaration itself.
-That keeps the reference graph cleaner.
+### Exact behavior
 
----
+- [ ] start a transaction
+- [ ] delete existing edges where `kind = "references"` and `to_id = target_symbol_id`
+- [ ] insert the new reference edges
+- [ ] commit on success
+- [ ] rollback on failure
+- [ ] re-raise the original failure after rollback
 
-## Location mapping problem
+### Do not do
 
-This is the hardest part of the phase.
+- [ ] do not replace all references edges globally
+- [ ] do not replace by `from_id`
+- [ ] do not leave stale target-specific references behind
 
-The LSP returns locations.
-Your graph stores symbols.
-You need to map each location to the symbol that contains that usage site.
+### Done when
 
-That means:
-- identify the file
-- find graph nodes in that file
-- choose the smallest node range that contains the usage
-- if none contain it, fall back to the module node
+- [ ] one target symbol’s references can be refreshed cleanly without duplicating or mixing old edges
 
-This gives you a useful `from_id`.
+***
 
-The target symbol is already known.
-That gives you the `to_id`.
+## Step 10 - Reference Enrichment Orchestrator
 
-So one usage becomes one `references` edge:
-- `from_id` = symbol containing the usage
-- `to_id` = referenced target symbol
+### File
 
----
+- [ ] `src/repo_context/lsp/references.py`
 
-## Mapping strategy
+### Implement
 
-Use a practical rule:
+- [ ] `enrich_references_for_symbol(conn, lsp_client, target_symbol)`
 
-1. convert the LSP `uri` to a repo-relative file path or matching file record
-2. load all nodes for that file
-3. check which node ranges contain the usage range
-4. pick the smallest containing node
-5. if no symbol contains it, use the module node for the file
-6. record confidence based on match quality
+### Exact behavior
 
-### Why smallest containing node
+Perform these steps in this exact order:
 
-If a usage sits inside a method, you want the method, not the whole file.
-That makes reference edges much more useful.
+- [ ] resolve query position from target symbol
+- [ ] call LSP references with `includeDeclaration=False`
+- [ ] normalize returned locations
+- [ ] for each location:
+  - [ ] resolve file by exact URI
+  - [ ] if file cannot be resolved, skip location
+  - [ ] load all nodes for that file
+  - [ ] map usage range to smallest containing symbol
+  - [ ] if no containing symbol exists, fall back to module node
+  - [ ] if no module node exists, skip location
+  - [ ] assign confidence based on exact match or module fallback
+  - [ ] build one `references` edge
+- [ ] deduplicate new edges
+- [ ] replace existing references for the target symbol
+- [ ] return reference stats for the target symbol
 
----
+### Do not do
 
-## Range containment helper
+- [ ] do not store raw LSP locations as final truth
+- [ ] do not create edges to placeholder target IDs here
+- [ ] do not keep old target-specific edges after refresh
 
-Create this in `lsp/mapper.py`.
+### Done when
 
-```python
-def range_contains(outer: dict, inner: dict) -> bool:
-    os = outer["start"]
-    oe = outer["end"]
-    ins = inner["start"]
-    ine = inner["end"]
+- [ ] one target symbol can be enriched on demand from declaration position to stored reference edges
 
-    return (
-        (os["line"], os["character"]) <= (ins["line"], ins["character"]) and
-        (oe["line"], oe["character"]) >= (ine["line"], ine["character"])
-    )
-```
+***
 
-### Why this matters
+## Step 11 - Graph Reference Queries
 
-This is the core primitive for mapping usage locations to internal symbols.
+### File
 
----
+- [ ] `src/repo_context/graph/references.py`
 
-## Smallest-containing-symbol helper
+### Implement
 
-```python
-def pick_smallest_containing_symbol(symbols_in_file: list[dict], usage_range: dict) -> dict | None:
-    containing = [
-        symbol for symbol in symbols_in_file
-        if symbol.get("range_json") and range_contains(symbol["range_json"], usage_range)
-    ]
+- [ ] `list_reference_edges_for_target(conn, target_id)`
+- [ ] `list_referenced_by(conn, target_id)`
+- [ ] `list_references_from_symbol(conn, source_id)`
+- [ ] `build_reference_stats(conn, target_id)`
 
-    if not containing:
-        return None
+### Exact behavior
 
-    containing.sort(
-        key=lambda symbol: (
-            symbol["range_json"]["end"]["line"] - symbol["range_json"]["start"]["line"],
-            symbol["range_json"]["end"]["character"] - symbol["range_json"]["start"]["character"],
-        )
-    )
+#### `list_reference_edges_for_target`
+- [ ] return stored edges where `kind = "references"` and `to_id = target_id`
+- [ ] order deterministically by evidence URI, line, character
 
-    return containing
-```
+#### `list_referenced_by`
+- [ ] derive reverse usage view from `references` edges targeting `target_id`
+- [ ] return the source symbols or a stable caller-oriented structure using stored `from_id`
+- [ ] do not persist reverse edges
 
-### Important note
+#### `list_references_from_symbol`
+- [ ] return stored `references` edges where `from_id = source_id`
+- [ ] order deterministically
 
-This is not mathematically perfect, but it is good enough for v1.
-Do not overcomplicate it.
+#### `build_reference_stats`
+- [ ] compute `reference_count`
+- [ ] compute unique `referencing_file_count`
+- [ ] compute unique `referencing_module_count`
+- [ ] include `available`
+- [ ] include `last_refreshed_at`
 
----
+### Exact `build_reference_stats` rules
 
-## Module fallback strategy
+- [ ] `reference_count` = total number of `references` edges for the target
+- [ ] `referencing_file_count` = count of unique `evidence_file_id` values for those edges
+- [ ] `referencing_module_count` = count of unique source module identities derived from source symbols
+- [ ] `available = True` only when references have been refreshed and stored for that target
+- [ ] `last_refreshed_at` = newest or stable refresh timestamp taken from stored edges for that target
+- [ ] if references have never been refreshed for the target, return:
+  - [ ] `available = False`
+  - [ ] do not pretend zero counts are fresh truth
 
-Sometimes no function or method range will contain the usage.
+### Do not do
 
-Examples:
-- top-level executable code
-- weird formatting or partial mapping issues
-- unresolved range edge cases
+- [ ] do not compute reverse truth separately
+- [ ] do not treat “never refreshed” as the same thing as “zero references”
 
-In that case:
-- fall back to the module node for that file
+### Done when
 
-### Why this is okay
+- [ ] the graph can answer direct and reverse reference questions from stored `references` edges only
 
-A module-level reference edge is still more useful than losing the reference entirely.
+***
 
-### Confidence rule
+## Step 12 - Update `SymbolContext` Reference Summary
 
-If you fall back to module-level containment:
-- reduce confidence slightly
+### Files to modify
 
-Example:
-- exact symbol containment: `0.9`
-- module fallback: `0.7`
+- [ ] phase 5 context builder code
 
----
+### Implement
 
-## `references` edge model
+When building a symbol context:
 
-Use the existing `Edge` shape with:
+- [ ] fetch reference stats for the focus symbol if available
+- [ ] populate `reference_summary` from stored stats when available
+- [ ] keep `reference_summary.available = False` if no enrichment exists for that symbol
 
-- `kind = "references"`
-- `from_id = containing symbol`
-- `to_id = referenced target symbol`
-- `source = "lsp"`
+### Exact behavior
 
-Recommended example:
+- [ ] if the symbol has never had references refreshed, `available` must be `False`
+- [ ] if references have been refreshed and zero edges were found, `available` must be `True` and counts may be zero
+- [ ] do not collapse these two states into one
 
-```python
-{
-  "id": "edge:repo:project:references:symA->symB:44:15",
-  "repo_id": "repo:project",
-  "kind": "references",
-  "from_id": "sym:repo:project:function:app.tasks.run_job",
-  "to_id": "sym:repo:project:function:app.services.jobs.execute_job",
-  "source": "lsp",
-  "confidence": 0.9,
-  "evidence_file_id": "file:app/tasks.py",
-  "evidence_uri": "file:///workspace/project/app/tasks.py",
-  "evidence_range_json": {
-    "start": {"line": 44, "character": 15},
-    "end": {"line": 44, "character": 26}
-  },
-  "payload_json": {},
-  "last_indexed_at": "2026-03-23T22:00:00Z"
-}
-```
+### Do not do
 
----
+- [ ] do not fake zero references when enrichment never ran
+- [ ] do not force a live LSP call during normal context building in phase 6
 
-## Edge ID rule for references
+### Done when
 
-A good ID should include:
-- repo
-- kind
-- from symbol
-- to symbol
-- evidence anchor
+- [ ] `SymbolContext.reference_summary` distinguishes unavailable from refreshed-zero correctly
 
-Example:
+***
 
-```text
-edge:{repo_id}:references:{from_id}->{to_id}:{line}:{character}
-```
+## Step 13 - CLI Commands
 
-### Why this works
+### Files to modify
 
-It avoids collisions when:
-- one symbol references another multiple times
-- different usage sites exist in the same file
+- [ ] existing CLI module from earlier phases
 
----
+### Implement
 
-## Reference enrichment flow
+Add these commands.
 
-The enrichment logic for one target symbol should look like this:
+### Command 1
+- [ ] `repo-context refresh-references <node-id>`
 
-1. load target symbol
-2. resolve declaration position
-3. call the LSP for references
-4. for each returned location:
-   - resolve file record
-   - get file symbols
-   - map to smallest containing symbol
-   - build a `references` edge
-5. replace old reference edges for that target if needed
-6. persist new reference edges
-7. return summary stats
+### Required behavior
+- [ ] load the target symbol by node ID
+- [ ] refresh references for that symbol using the LSP client
+- [ ] print resulting stats
 
----
+### Command 2
+- [ ] `repo-context show-references <node-id>`
 
-## Refresh strategy
+### Required behavior
+- [ ] show stored incoming `references` edges for the target symbol
+- [ ] print source symbol ID, evidence file, and evidence location at minimum
 
-You need a policy for updating references.
+### Command 3
+- [ ] `repo-context show-referenced-by <node-id>`
 
-There are two valid options.
+### Required behavior
+- [ ] show source symbols that reference the target symbol
+- [ ] use reverse lookup derived from stored `references` edges
 
-## Option A: On-demand refresh per symbol
+### Do not do
 
-When a caller asks for references of a symbol:
-- fetch or recompute them on demand
+- [ ] do not trigger unrelated LSP features
+- [ ] do not hide whether data is fresh or unavailable when printing stats
 
-Pros:
-- cheaper initially
-- easier to implement
+### Done when
 
-Cons:
-- inconsistent freshness across symbols
+- [ ] references can be refreshed and inspected from CLI without direct SQL
 
-## Option B: Enrich during indexing
+***
 
-When indexing or reindexing a file or repo:
-- refresh references for touched symbols
+## Step 14 - LSP Availability Handling
 
-Pros:
-- more consistent graph state
+### Files to verify
 
-Cons:
-- more expensive and more orchestration complexity
+- [ ] `src/repo_context/lsp/client.py`
+- [ ] CLI handlers
+- [ ] enrichment orchestrator
 
-My blunt recommendation for v1:
-- start with Option A
-- add broader refresh later if needed
+### Implement
 
-This keeps the system cheaper and simpler.
+Apply these exact failure rules:
 
----
+- [ ] if the language server is unavailable, raise a clear failure
+- [ ] if one target symbol cannot be enriched, do not corrupt previously stored references for other targets
+- [ ] if refresh fails before replacement commit, preserve old stored references for that target
+- [ ] surface LSP failures clearly in CLI output
 
-## Replacement strategy for references
+### Do not do
 
-When refreshing references for one target symbol, avoid duplicate old edges.
+- [ ] do not silently convert LSP failure into zero references
+- [ ] do not delete old edges before a refresh unless replacement is handled transactionally
 
-Recommended helper:
-- delete previous `references` edges where `to_id = target_symbol_id`
-- insert fresh ones
+### Done when
 
-### Why `to_id`
+- [ ] LSP failures are visible and do not destroy valid existing graph state
 
-Because the enrichment is for “who references this target”.
-That makes replacement by `to_id` practical.
+***
 
-### Important caveat
+## Step 15 - Tests
 
-If later you enrich references from both directions or in batches, revisit this.
-For v1, replacement by target symbol is fine.
+### Files to create or modify
 
----
+- [ ] phase 6 tests under `tests/`
 
-## Example enrichment function sketch
+### Test strategy
 
-```python
-def enrich_references_for_symbol(conn, lsp_client, target_symbol: dict) -> dict:
-    position = get_reference_query_position(target_symbol)
-    locations = lsp_client.find_references(
-        uri=target_symbol["uri"],
-        position=position,
-        include_declaration=False,
-    )
+- [ ] use a fake or mocked LSP client for most tests
+- [ ] do not require a real language server for the full core test suite
 
-    new_edges = []
+### Implement these tests
 
-    for location in locations:
-        file_record = resolve_file_by_uri(conn, location["uri"])
-        if file_record is None:
-            continue
+- [ ] `test_get_reference_query_position_prefers_selection_range`
+- [ ] `test_map_location_to_smallest_containing_symbol`
+- [ ] `test_module_fallback_when_no_symbol_contains_usage`
+- [ ] `test_build_reference_edge`
+- [ ] `test_replace_reference_edges_for_target`
+- [ ] `test_reference_stats`
+- [ ] `test_context_includes_reference_summary_when_available`
+- [ ] `test_context_marks_reference_summary_unavailable_when_not_refreshed`
 
-        symbols_in_file = list_nodes_for_file(conn, file_record["id"])
-        usage_range = location["range"]
+### Exact test assertions
 
-        source_symbol = pick_smallest_containing_symbol(symbols_in_file, usage_range)
-        confidence = 0.9
+#### `test_get_reference_query_position_prefers_selection_range`
+- [ ] when `selection_range_json` exists, its start is used
+- [ ] when `selection_range_json` is missing, `range_json.start` is used
+- [ ] when both are missing, a clear failure is raised
 
-        if source_symbol is None:
-            source_symbol = find_module_node_for_file(symbols_in_file)
-            confidence = 0.7
+#### `test_map_location_to_smallest_containing_symbol`
+- [ ] a usage inside a method maps to the method
+- [ ] it does not map to the broader class or module when narrower containment exists
 
-        if source_symbol is None:
-            continue
+#### `test_module_fallback_when_no_symbol_contains_usage`
+- [ ] if no symbol contains the usage, the module node is returned
+- [ ] confidence is lowered to module fallback value
 
-        edge = build_reference_edge(
-            repo_id=target_symbol["repo_id"],
-            from_symbol_id=source_symbol["id"],
-            to_symbol_id=target_symbol["id"],
-            evidence_file_id=file_record["id"],
-            evidence_uri=location["uri"],
-            evidence_range=usage_range,
-            confidence=confidence,
-        )
-        new_edges.append(edge)
+#### `test_build_reference_edge`
+- [ ] edge kind is `references`
+- [ ] `from_id` is correct
+- [ ] `to_id` is correct
+- [ ] `source` is `lsp`
+- [ ] evidence fields are correct
+- [ ] ID includes evidence anchor
 
-    replace_reference_edges_for_target(conn, target_symbol["id"], new_edges)
+#### `test_replace_reference_edges_for_target`
+- [ ] old references edges for one target are removed
+- [ ] new references edges for that target are inserted
+- [ ] unrelated targets remain untouched
 
-    return build_reference_stats(conn, target_symbol["id"])
-```
+#### `test_reference_stats`
+- [ ] total reference count is correct
+- [ ] unique file count is correct
+- [ ] unique module count is correct
+- [ ] availability state is correct
 
-This is enough for a v1 contract.
+#### `test_context_includes_reference_summary_when_available`
+- [ ] symbol context includes refreshed reference stats
+- [ ] `available = True`
 
----
+#### `test_context_marks_reference_summary_unavailable_when_not_refreshed`
+- [ ] symbol context returns `available = False`
+- [ ] it does not pretend that zero references are known truth
 
-## File resolution helper
+### Do not do
 
-You need a clean way to map a LSP URI back to a stored file record.
+- [ ] do not rely only on integration tests with a real LSP process
+- [ ] do not leave mapping behavior untested
 
-Recommended helper in `resolver.py` or `mapper.py`:
+### Done when
 
-```python
-def resolve_file_by_uri(conn, uri: str):
-    ...
-```
+- [ ] reference enrichment behavior is covered by deterministic tests
 
-### Expected behavior
+***
 
-- find the stored `FileRecord` with the same `uri`
-- return `None` if not found
+## Step 16 - Fixture Validation
 
-### Important rule
+### Files to use
 
-Do not use fuzzy path matching if exact URI matching works.
-Stay strict where possible.
+- [ ] add a small `references_case` fixture repo under `tests/fixtures/` if not already present
 
----
+### Minimum fixture shape
 
-## Module lookup helper
+- [ ] one target function declaration in one file
+- [ ] one reference to that target in a second file
+- [ ] one reference to that target in a third file
 
-When symbol containment fails, you need a module fallback.
+### Implement
 
-Recommended helper:
+For at least one fixture repo:
 
-```python
-def find_module_node_for_file(symbols_in_file: list[dict]) -> dict | None:
-    ...
-```
+- [ ] scan files using phase 2
+- [ ] extract structural graph using phase 3
+- [ ] persist graph using phase 4
+- [ ] build context using phase 5
+- [ ] enrich references using phase 6 with mocked or fake LSP output
+- [ ] assert exact stored edges and stats
 
-Expected behavior:
-- return the node with `kind == "module"` if present
-- otherwise return `None`
+### Do not do
 
----
+- [ ] do not require a real LSP server for this fixture validation path
 
-## Graph-level reference queries
+### Done when
 
-Add `graph/references.py`.
+- [ ] phases 2 through 6 work together on a deterministic reference-enrichment flow
 
-Recommended functions:
+***
 
-```python
-def list_reference_edges_for_target(conn, target_id: str) -> list[dict]:
-    ...
+## Step 17 - Final Verification
 
-def list_referenced_by(conn, target_id: str) -> list[dict]:
-    ...
+Before marking phase 6 complete, verify all of the following:
 
-def list_references_from_symbol(conn, source_id: str) -> list[dict]:
-    ...
+- [ ] a symbol’s declaration query position can be resolved
+- [ ] a minimal LSP client can request references
+- [ ] returned locations can be mapped back to internal symbols
+- [ ] smallest-containing-symbol mapping works
+- [ ] module fallback works
+- [ ] `references` edges can be persisted
+- [ ] duplicate old references for a target can be replaced cleanly
+- [ ] `referenced_by` can be derived from reverse lookup
+- [ ] reference stats can be computed
+- [ ] symbol context exposes reference summary when available
+- [ ] symbol context distinguishes unavailable references from refreshed zero references
+- [ ] CLI commands for refreshing and viewing references work
+- [ ] tests pass
+- [ ] no risk engine exists
+- [ ] no MCP server exists
 
-def build_reference_stats(conn, target_id: str) -> dict:
-    ...
-```
+Do not mark phase 6 done until every box above is true.
 
-### Why both `list_reference_edges_for_target` and `list_referenced_by`
+***
 
-They may initially look similar, but one can return edges and the other can return source symbols or a richer caller-oriented view if you want later.
-The separation is useful.
+## Required Execution Order
 
----
+Implement in this order and do not skip ahead:
 
-## Reference stats design
+- [ ] Step 1 minimal LSP client
+- [ ] Step 2 LSP protocol helpers
+- [ ] Step 3 declaration query position resolver
+- [ ] Step 4 file resolution by URI
+- [ ] Step 5 range containment helper
+- [ ] Step 6 smallest containing symbol picker
+- [ ] Step 7 module fallback helper
+- [ ] Step 8 reference edge builder
+- [ ] Step 9 replace reference edges for target
+- [ ] Step 10 reference enrichment orchestrator
+- [ ] Step 11 graph reference queries
+- [ ] Step 12 update `SymbolContext` reference summary
+- [ ] Step 13 CLI commands
+- [ ] Step 14 LSP availability handling
+- [ ] Step 15 tests
+- [ ] Step 16 fixture validation
+- [ ] Step 17 final verification
 
-You want cheap summary facts.
+***
 
-Recommended output shape:
+## Phase 6 Done Definition
 
-```python
-{
-  "reference_count": 14,
-  "referencing_file_count": 6,
-  "referencing_module_count": 4,
-  "available": True,
-  "last_refreshed_at": "2026-03-23T22:10:00Z"
-}
-```
+Phase 6 is complete only when all of these are true:
 
-### How to compute it
-
-From `references` edges where `to_id = target_symbol_id`:
-- count edges
-- count unique `evidence_file_id`
-- count unique source module parents or module-qualified names
-
-### Why this matters
-
-These stats are exactly the kind of signal the risk engine will use later.
-
----
-
-## Updating `SymbolContext`
-
-Phase 5 already created a `reference_summary` placeholder.
-
-Now phase 6 should enrich it.
-
-When building symbol context:
-- fetch reference stats if available
-- include them in `reference_summary`
-
-Example:
-
-```python
-{
-  "reference_count": 14,
-  "referencing_file_count": 6,
-  "referencing_module_count": 4,
-  "available": True,
-  "last_refreshed_at": "2026-03-23T22:10:00Z"
-}
-```
-
-### Important rule
-
-If references have never been enriched for the symbol:
-- return `available = False`
-- do not fake zero as if it were fresh truth
-
-That distinction matters.
-
----
-
-## Confidence rules for reference edges
-
-Use simple confidence rules.
-
-Suggested v1 rules:
-
-- exact containing symbol match: `0.9`
-- module fallback match: `0.7`
-- weird partial match: `0.5`
-
-### Why confidence matters here
-
-LSP returns locations, but your graph mapping adds interpretation.
-That interpretation is not always perfect.
-
-Be honest about that.
-
----
-
-## Handling duplicate reference locations
-
-Language servers may return duplicate or near-duplicate results in some cases.
-
-You should deduplicate by:
-- target symbol
-- source symbol
-- evidence URI
-- evidence start position
-
-### Why
-
-You want one stored edge per concrete usage site, not noisy duplicates.
-
----
-
-## Handling self references
-
-Sometimes a symbol may reference itself or appear in contexts that map back to itself.
-
-You have two options:
-
-## Option A: keep self references
-
-Pros:
-- honest
-- fully preserves returned data
-
-Cons:
-- can add noise
-
-## Option B: filter self references
-
-Pros:
-- cleaner stats in some cases
-
-Cons:
-- may hide useful recursion or self-usage patterns
-
-My recommendation:
-- keep them for now
-- only filter later if you find they hurt more than they help
-
-Just be consistent.
-
----
-
-## CLI additions for this phase
-
-Add commands like:
-
-### `refresh-references`
-
-```text
-repo-context refresh-references <node-id>
-```
-
-What it does:
-- refreshes references for one target symbol
-- prints counts
-
-### `show-references`
-
-```text
-repo-context show-references <node-id>
-```
-
-What it does:
-- shows incoming `references` edges targeting the symbol
-
-### `show-referenced-by`
-
-```text
-repo-context show-referenced-by <node-id>
-```
-
-What it does:
-- shows source symbols that reference the target
-
-### Why this matters
-
-Before MCP exists, this is the cheapest way to verify enrichment behavior.
-
----
-
-## Testing plan
-
-This phase needs more careful tests because LSP can be annoying.
-
-### Strategy
-
-Mock or fake the LSP client for most tests.
-Do not make all tests depend on a real language server process.
-
-You can still add one integration test later if you want.
-
----
-
-## Core tests
-
-### `test_get_reference_query_position_prefers_selection_range`
-
-Verify:
-- `selection_range` is preferred over `range`
-
-### `test_map_location_to_smallest_containing_symbol`
-
-Verify:
-- a usage inside a method maps to the method, not the module
-
-### `test_module_fallback_when_no_symbol_contains_usage`
-
-Verify:
-- top-level or unmapped usage falls back to the module node
-
-### `test_build_reference_edge`
-
-Verify:
-- edge fields are built correctly
-- `kind` is `references`
-- `from_id` and `to_id` are correct
-
-### `test_replace_reference_edges_for_target`
-
-Verify:
-- old target-specific references are removed
-- new ones are inserted cleanly
-
-### `test_reference_stats`
-
-Verify:
-- edge count
-- unique file count
-- unique module count
-
-### `test_context_includes_reference_summary_when_available`
-
-Verify:
-- symbol context now exposes enriched stats
-
-### `test_context_marks_reference_summary_unavailable_when_not_refreshed`
-
-Verify:
-- it distinguishes unavailable from zero
-
----
-
-## Suggested test fixtures
-
-Use small repos where references are obvious.
-
-Example:
-
-```text
-tests/fixtures/
-  references_case/
-    app/
-      services.py
-      api.py
-      tasks.py
-```
-
-### Example shape
-
-#### `services.py`
-
-```python
-def execute_job(job_id: str) -> None:
-    pass
-```
-
-#### `api.py`
-
-```python
-from app.services import execute_job
-
-def handle_request(job_id: str) -> None:
-    execute_job(job_id)
-```
-
-#### `tasks.py`
-
-```python
-from app.services import execute_job
-
-def run_job(job_id: str) -> None:
-    execute_job(job_id)
-```
-
-This should later produce:
-- target symbol: `execute_job`
-- references from `handle_request`
-- references from `run_job`
-
-That is a great starter case.
-
----
-
-## Acceptance checklist
-
-Phase 6 is done when all of this is true:
-
-- A symbol’s declaration position can be resolved for LSP queries.
-- A minimal LSP client can request references.
-- Returned locations can be mapped back to internal symbols.
-- `references` edges can be persisted.
-- Duplicate old references for a target can be replaced cleanly.
-- `referenced_by` can be derived from reverse lookup.
-- Reference stats can be computed.
-- Symbol context can expose reference summary when available.
-- Symbol context can distinguish unavailable references from zero references.
-- CLI commands for refreshing and viewing references work.
-- Tests pass.
-- No risk engine exists yet.
-- No MCP server exists yet.
-
----
-
-## Common mistakes to avoid
-
-### Mistake 1: Trying to support all of LSP
-
-Do not build an IDE.
-Build one useful enrichment layer.
-
-### Mistake 2: Treating raw LSP locations as final truth
-
-You want graph edges between stable symbol IDs, not a pile of unconnected coordinates.
-
-### Mistake 3: Storing both `references` and `referenced_by` as separate truths
-
-That is duplication and future inconsistency.
-Store one direction, derive the reverse.
-
-### Mistake 4: Pretending mapping confidence is always perfect
-
-Range containment is practical, not magic.
-Use confidence scores honestly.
-
-### Mistake 5: Returning zero references when references were never fetched
-
-That is misleading.
-Use `available = False` when no enrichment exists yet.
-
-### Mistake 6: Overcomplicating refresh behavior
-
-Start with on-demand refresh per symbol.
-You can scale later.
-
----
-
-## What phase 7 will depend on
-
-The next phase will assume phase 6 already gives it:
-
-- reference counts
-- referencing file counts
-- referencing module counts
-- `referenced_by` queries
-- confidence-aware reference edges
-
-Phase 7 will turn those graph facts into a deterministic plan-risk assessment.
-That is why this phase matters so much.
-
----
-
-## Final guidance
-
-This phase is where the graph stops being only structural and starts becoming operationally useful.
-
-Before phase 6:
-- you know what exists
-
-After phase 6:
-- you know where at least some important things are used
-
-That is a huge upgrade for planning safety.
-
-Keep the LSP layer narrow and disciplined:
-
-- one feature
-- one mapping path
-- one stored relationship
-- one reverse derivation rule
-
-If you do that, you get most of the value without drowning in protocol complexity.
-```
+- [ ] phase 1 through phase 5 contracts remain intact
+- [ ] one narrow LSP feature is implemented: `references`
+- [ ] raw LSP locations are mapped back to stable internal symbol IDs
+- [ ] `references` edges are the only stored semantic usage truth
+- [ ] reverse usage is derived, not duplicated
+- [ ] unavailable references are distinct from zero references
+- [ ] CLI inspection works
+- [ ] tests pass
+- [ ] no out-of-scope LSP features were added

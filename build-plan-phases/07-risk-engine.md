@@ -1,1053 +1,900 @@
-```md
-# 07-risk-engine.md
+# 07 Risk Engine - Exact Implementation Checklist
 
-## Purpose
+## Objective
 
-This phase builds the risk engine.
+Implement phase 7 of the repository indexing pipeline.
 
-The risk engine is the deterministic analysis layer that turns graph facts into structured risk signals. It is not tied only to one input shape like a specific plan request. Instead, it provides the reusable risk logic that later tools, workflows, and MCP endpoints will call.
+Phase 7 must turn stored graph facts and LSP-enriched reference facts into a reusable deterministic risk engine that can analyze one symbol or a set of symbols and return:
 
-In plain English:
-
-- the graph tells you what exists
-- LSP enrichment tells you where symbols are referenced
-- the risk engine turns that data into risk facts, issue codes, scores, and decisions
-
-The plan evaluator that comes later should use this engine.
-The engine is the core logic.
-The evaluator is just one consumer of that logic.
-
----
-
-## Why this phase matters
-
-Without a dedicated risk engine, risk logic gets scattered everywhere:
-
-- some rules end up in CLI code
-- some rules end up in MCP tools
-- some rules end up in the agent prompt
-- some rules end up duplicated in context builders
-
-That is a bad design.
-
-The risk engine should be the single reusable place that answers questions like:
-
-- is this symbol risky to change
-- why is it risky
-- how broad is the blast radius
-- is the graph too stale or uncertain to trust
-- what deterministic issues should be raised
-
-This phase is where the project stops being just a code graph and starts becoming a safety layer.
-
----
-
-## Phase goals
-
-By the end of this phase, you should have:
-
-- a reusable risk engine module
-- reusable fact extraction functions
-- reusable issue detection functions
-- reusable scoring functions
-- reusable decision functions
-- support for symbol-level risk analysis
-- support for target-set risk analysis
-- support for later plan-level composition
-- structured machine-friendly risk outputs
-- CLI commands for symbol and target risk inspection
-- tests for risk facts, rules, scoring, and decisions
-
----
-
-## Phase non-goals
-
-Do **not** do any of this in phase 7:
-
-- full MCP server implementation
-- final plan-evaluation tool contract
-- autonomous plan rewriting
-- freeform natural-language narratives
-- diff-aware code mutation analysis
-- runtime validation
-- test execution
-- file watching
-
-This phase is the reusable core risk layer, not the final workflow wrapper.
-
----
-
-## What already exists from previous phases
-
-This phase assumes you already have:
-
-- repository and file inventory
-- AST-based structural graph
-- graph storage and graph queries
-- symbol context assembly
-- LSP-based `references` enrichment
-
-The risk engine consumes those layers.
-It does not replace them.
-
----
-
-## Core idea
-
-The risk engine should accept one or more target symbols and produce:
-
+- normalized targets
 - deterministic facts
 - issue codes
-- a risk score
-- a decision
-
-That means the risk engine should be usable for:
-
-- one symbol
-- multiple symbols
-- later plan assessment
-- later pre-edit review
-- later MCP calls
-
-This is why the phase should be called `risk-engine`, not only `plan-risk evaluator`.
-
----
-
-## Risk engine responsibilities
-
-The risk engine should answer:
-
-- how many references does this symbol have
-- how many files reference it
-- how many modules reference it
-- does it look public
-- does it participate in inheritance
-- is the graph stale
-- is the graph low-confidence
-- does the target set span multiple files or modules
-- what issues should be raised
-- what score should be assigned
-- what decision should be returned
-
-That is enough for version 1.
-
----
-
-## Recommended package structure additions
-
-Add these files:
-
-```text
-src/
-  repo_context/
-    graph/
-      risk_engine.py
-      risk_facts.py
-      risk_rules.py
-      risk_scoring.py
-      risk_targets.py
-      risk_types.py
-```
-
-### Why this split
-
-- `risk_engine.py`: orchestration entry points
-- `risk_facts.py`: raw deterministic fact extraction
-- `risk_rules.py`: issue detection
-- `risk_scoring.py`: weights and decision thresholds
-- `risk_targets.py`: target normalization and grouping
-- `risk_types.py`: reusable result contracts
-
-This keeps the logic reusable and prevents one giant file.
-
----
-
-## Core data contracts
-
-The risk engine should define its own reusable types.
-Do not force everything into `PlanAssessment` yet.
-
-Recommended types:
-
-- `RiskTarget`
-- `RiskFacts`
-- `RiskResult`
-
-The later plan evaluator can compose these into a `PlanAssessment`.
-
----
-
-## Type: RiskTarget
-
-Represents one analysis target.
-
-### Suggested shape
-
-```python
-from dataclasses import dataclass
-from typing import Optional
-
-@dataclass
-class RiskTarget:
-    symbol_id: str
-    qualified_name: str
-    kind: str
-    file_id: str
-    file_path: str
-    module_path: str
-    visibility_hint: Optional[str] = None
-```
-
-### Why this exists
-
-The engine should not depend on raw DB rows everywhere.
-A small normalized target shape makes analysis cleaner.
-
----
-
-## Type: RiskFacts
-
-Represents deterministic analysis facts for one or more targets.
-
-### Suggested shape
-
-```python
-from dataclasses import dataclass, field
-from typing import Any
-
-@dataclass
-class RiskFacts:
-    target_count: int = 0
-    symbol_ids: list[str] = field(default_factory=list)
-    symbol_kinds: dict[str, str] = field(default_factory=dict)
-
-    reference_counts: dict[str, int] = field(default_factory=dict)
-    referencing_file_counts: dict[str, int] = field(default_factory=dict)
-    referencing_module_counts: dict[str, int] = field(default_factory=dict)
-
-    touches_public_surface: bool = False
-    target_spans_multiple_files: bool = False
-    target_spans_multiple_modules: bool = False
-    cross_file_impact: bool = False
-    cross_module_impact: bool = False
-    inheritance_involved: bool = False
-
-    stale_symbols: list[str] = field(default_factory=list)
-    low_confidence_symbols: list[str] = field(default_factory=list)
-    low_confidence_edges: list[str] = field(default_factory=list)
-
-    extra: dict[str, Any] = field(default_factory=dict)
-```
-
-### Why this shape works
-
-It separates raw facts from:
-- issue codes
-- score
+- risk score
 - decision
 
-That keeps the engine explainable.
+Phase 7 must provide:
+- one reusable risk engine module
+- target normalization
+- risk fact extraction
+- issue detection
+- score computation
+- decision computation
+- symbol-level risk analysis
+- target-set risk analysis
+- CLI inspection commands
+- tests for facts, rules, scores, and decisions
 
----
+Phase 7 must not provide:
+- MCP server implementation
+- final plan-evaluation wrapper contract
+- autonomous plan rewriting
+- freeform narrative analysis
+- diff-aware mutation analysis
+- runtime validation
+- test execution
+- watch mode
 
-## Type: RiskResult
+***
 
-Represents the final output of the risk engine.
+## Consistency Rules
 
-### Suggested shape
+These rules are mandatory.
 
-```python
-from dataclasses import dataclass, field
+- [ ] Reuse the existing phase 1 through phase 6 models, graph queries, context builder, and reference enrichment outputs.
+- [ ] Keep the engine reusable and independent of any one workflow wrapper.
+- [ ] Keep the engine deterministic.
+- [ ] Separate facts, issues, score, and decision into distinct steps.
+- [ ] Do not put risk logic in CLI handlers.
+- [ ] Do not put risk logic in MCP adapters.
+- [ ] Do not put risk logic in context-builder modules.
+- [ ] Do not treat unavailable reference data as known zero.
+- [ ] Keep outputs machine-friendly and JSON-friendly.
+- [ ] Keep thresholds explicit and easy to tune later.
 
-@dataclass
-class RiskResult:
-    targets: list[RiskTarget] = field(default_factory=list)
-    facts: RiskFacts = field(default_factory=RiskFacts)
-    issues: list[str] = field(default_factory=list)
-    risk_score: int = 0
-    decision: str = "unknown"
-```
+***
 
-### Why this exists
+## Required Inputs
 
-This is the reusable engine-level output.
-The plan evaluator later can wrap this result without reimplementing the logic.
+Phase 7 must consume these existing inputs:
 
----
+- [ ] stored nodes
+- [ ] stored edges
+- [ ] graph query helpers
+- [ ] symbol context helpers from phase 5
+- [ ] reference stats and `references` edges from phase 6
+- [ ] resolved symbol IDs
 
-## Design principles
+Do not make the risk engine responsible for unresolved-target plan parsing.
 
-### Principle 1: Facts first, scoring second
+***
 
-Do not jump straight to a score.
-Extract facts first, then derive issues, then derive score.
+## Required Outputs
 
-### Principle 2: The engine should be reusable
+Phase 7 must produce these capabilities:
 
-The engine should not care whether the caller is:
-- a CLI command
-- a plan evaluator
-- a future MCP tool
+- [ ] analyze one symbol by symbol ID
+- [ ] analyze multiple symbols by symbol ID list
+- [ ] normalize raw symbols into `RiskTarget`
+- [ ] compute deterministic `RiskFacts`
+- [ ] detect issue codes
+- [ ] compute risk score
+- [ ] compute decision
+- [ ] return a reusable `RiskResult`
+- [ ] inspect results from CLI
 
-### Principle 3: Deterministic only
+Do not add plan-level text generation in this phase.
 
-The engine should use:
-- graph facts
-- thresholds
-- small heuristics
+***
 
-It should not rely on freeform LLM interpretation.
+## Required File Layout
 
-### Principle 4: Missing or weak context should increase caution
+Create or extend these files:
 
-The engine should never pretend stale or low-confidence data is fine.
+- [ ] `src/repo_context/graph/risk_engine.py`
+- [ ] `src/repo_context/graph/risk_facts.py`
+- [ ] `src/repo_context/graph/risk_rules.py`
+- [ ] `src/repo_context/graph/risk_scoring.py`
+- [ ] `src/repo_context/graph/risk_targets.py`
+- [ ] `src/repo_context/graph/risk_types.py`
 
----
+Reuse existing files if they already exist.
 
-## Analysis entry points
+Do not collapse all risk logic into one giant file.
 
-You should support at least these two entry points.
+***
 
-### Entry point 1: analyze one symbol
+## Core Data Contracts
 
-```python
-def analyze_symbol_risk(conn, symbol_id: str) -> RiskResult:
-    ...
-```
+Phase 7 must define and use these reusable engine-level types:
 
-### Entry point 2: analyze a target set
+- [ ] `RiskTarget`
+- [ ] `RiskFacts`
+- [ ] `RiskResult`
 
-```python
-def analyze_target_set_risk(conn, symbol_ids: list[str]) -> RiskResult:
-    ...
-```
+Do not force everything into a later `PlanAssessment` type in this phase.
 
-### Why these are enough for now
+***
 
-- one symbol risk is useful for manual inspection
-- target set risk is what later plan evaluation will build on
+## Step 1 - Define Risk Types
 
-Do not build the plan wrapper into the engine itself yet.
+### File
 
----
+- [ ] `src/repo_context/graph/risk_types.py`
 
-## Target normalization
+### Implement
 
-Create `risk_targets.py`.
+Define these contracts:
 
-Recommended helper:
+- [ ] `RiskTarget`
+- [ ] `RiskFacts`
+- [ ] `RiskResult`
 
-```python
-def load_risk_targets(conn, symbol_ids: list[str]) -> list[RiskTarget]:
-    ...
-```
+### Required `RiskTarget` fields
 
-### What it should do
+- [ ] `symbol_id`
+- [ ] `qualified_name`
+- [ ] `kind`
+- [ ] `file_id`
+- [ ] `file_path`
+- [ ] `module_path`
+- [ ] `visibility_hint`
 
-For each symbol ID:
-- load the node
-- derive file path
-- derive module path
-- normalize it into `RiskTarget`
+### Required `RiskFacts` fields
 
-### Why it matters
+- [ ] `target_count`
+- [ ] `symbol_ids`
+- [ ] `symbol_kinds`
+- [ ] `reference_counts`
+- [ ] `referencing_file_counts`
+- [ ] `referencing_module_counts`
+- [ ] `touches_public_surface`
+- [ ] `target_spans_multiple_files`
+- [ ] `target_spans_multiple_modules`
+- [ ] `cross_file_impact`
+- [ ] `cross_module_impact`
+- [ ] `inheritance_involved`
+- [ ] `stale_symbols`
+- [ ] `low_confidence_symbols`
+- [ ] `low_confidence_edges`
+- [ ] `extra`
 
-The rest of the engine should work on normalized targets, not raw SQL rows.
+### Required `RiskResult` fields
 
----
+- [ ] `targets`
+- [ ] `facts`
+- [ ] `issues`
+- [ ] `risk_score`
+- [ ] `decision`
 
-## Fact extraction responsibilities
+### Required behavior
 
-Create `risk_facts.py`.
+- [ ] types must be JSON-friendly
+- [ ] default values must be safe and deterministic
+- [ ] no field may require LLM-generated text
 
-Recommended helper:
+### Do not do
 
-```python
-def build_risk_facts(conn, targets: list[RiskTarget]) -> RiskFacts:
-    ...
-```
+- [ ] do not add prose explanation fields
+- [ ] do not add plan-wrapper-only fields
 
-This should compute:
+### Done when
 
-- target count
-- symbol kinds
-- per-target reference counts
-- per-target referencing file counts
-- per-target referencing module counts
-- whether any target is public-like
-- whether target set spans multiple files
-- whether target set spans multiple modules
-- whether references imply cross-file impact
-- whether references imply cross-module impact
-- whether inheritance is involved
-- whether stale symbols exist
-- whether low-confidence symbols or edges exist
+- [ ] one stable reusable engine contract exists
 
-That is the engine’s raw material.
+***
 
----
+## Step 2 - Risk Engine Entry Points
 
-## Reference fact rules
+### File
 
-The engine should use the stored `references` edges from phase 6.
+- [ ] `src/repo_context/graph/risk_engine.py`
 
-For each target symbol:
-- count reference edges where `to_id = target_symbol_id`
-- count unique `evidence_file_id`
-- count unique referencing modules
+### Implement
 
-### Why this matters
+- [ ] `analyze_symbol_risk(conn, symbol_id)`
+- [ ] `analyze_target_set_risk(conn, symbol_ids)`
 
-These are your strongest first-order blast-radius signals.
+### Exact behavior
 
-### Suggested helper functions
+#### `analyze_symbol_risk`
+- [ ] delegate to `analyze_target_set_risk` with one symbol ID
 
-```python
-def get_reference_count(conn, target_id: str) -> int:
-    ...
+#### `analyze_target_set_risk`
+- [ ] normalize targets
+- [ ] build facts
+- [ ] detect issues
+- [ ] compute score
+- [ ] compute decision
+- [ ] return `RiskResult`
 
-def get_referencing_file_count(conn, target_id: str) -> int:
-    ...
+### Required build order
 
-def get_referencing_module_count(conn, target_id: str) -> int:
-    ...
-```
+- [ ] load targets
+- [ ] build facts
+- [ ] detect issues
+- [ ] score issues
+- [ ] decide final decision
+- [ ] assemble final result
 
----
+### Do not do
 
-## Public-surface heuristic
+- [ ] do not mix target resolution from user prose into this module
+- [ ] do not return only a score without facts and issues
 
-A target should be considered public-like if:
+### Done when
 
-- `visibility_hint == "public"`
-- or its name does not start with `_`
-- except magic methods like `__init__`, `__repr__`, `__call__` should not be treated as private-like
+- [ ] the engine can analyze one symbol or multiple symbols with the same core pipeline
 
-### Why this matters
+***
 
-Public-looking symbols are generally riskier to modify because they are more likely to be depended on.
+## Step 3 - Target Normalization
 
-### Suggested helper
+### File
 
-```python
-def is_public_like(target: RiskTarget) -> bool:
-    ...
-```
+- [ ] `src/repo_context/graph/risk_targets.py`
 
----
+### Implement
 
-## Target spread facts
+- [ ] `load_risk_targets(conn, symbol_ids)`
 
-The engine should compute whether the target set itself spans multiple files or modules.
+### Exact behavior
 
-### `target_spans_multiple_files`
+For each input symbol ID:
 
-True if:
-- the target set touches more than one file
+- [ ] load the symbol node
+- [ ] fail clearly if the symbol does not exist
+- [ ] extract `qualified_name`
+- [ ] extract `kind`
+- [ ] extract `file_id`
+- [ ] derive `file_path`
+- [ ] derive `module_path`
+- [ ] extract `visibility_hint`
+- [ ] normalize into `RiskTarget`
 
-### `target_spans_multiple_modules`
+### Required dedup rule
 
-True if:
-- the target set touches more than one module
+- [ ] remove duplicate input symbol IDs while preserving deterministic order
 
-### Why this matters
+### Do not do
 
-Even before references, a planned change that touches multiple files or modules is usually riskier than a local isolated one.
+- [ ] do not silently skip unknown symbol IDs
+- [ ] do not keep raw DB rows as engine targets
 
----
+### Done when
 
-## Reference spread facts
+- [ ] the rest of the engine can operate only on normalized `RiskTarget` values
 
-These are different from target spread.
+***
 
-### `cross_file_impact`
+## Step 4 - Public Surface Heuristic
 
-True if:
-- any target is referenced from more than one file
-- or from a file other than its own
+### File
 
-### `cross_module_impact`
+- [ ] `src/repo_context/graph/risk_targets.py` or `src/repo_context/graph/risk_facts.py`
 
-True if:
-- any target is referenced from more than one module
-- or from a different module than its declaration module
+### Implement
 
-### Why this distinction matters
+- [ ] `is_public_like(target)`
 
-A target may live in one file but still affect many other files.
-That is exactly the kind of change-risk signal you care about.
+### Exact behavior
 
----
+A target is public-like if:
 
-## Inheritance facts
+- [ ] `visibility_hint == "public"`
+- [ ] or its name does not start with `_`
 
-The engine should detect inheritance involvement.
+### Exact exception behavior
 
-### Suggested rules
+- [ ] magic methods like `__init__`, `__repr__`, and `__call__` must not be treated as private-like just because they start with `_`
+- [ ] dunder names must still count as public-like for this heuristic
 
-For a class target:
-- if it has outgoing `inherits` edges, set `inheritance_involved = True`
+### Do not do
 
-For a method target:
-- find parent class
-- if parent class has outgoing `inherits` edges, set `inheritance_involved = True`
+- [ ] do not invent framework-specific visibility rules
+- [ ] do not depend only on one heuristic if both `visibility_hint` and name are available
 
-### Why this matters
+### Done when
 
-Inheritance makes behavior-sharing and override interactions more likely.
+- [ ] the engine has one deterministic public-surface heuristic for all targets
 
----
+***
 
-## Freshness facts
+## Step 5 - Reference Fact Helpers
 
-The engine should detect stale context.
+### File
 
-Simple v1 rule:
-- if target `last_indexed_at` is missing, mark stale
-- if reference summary is unavailable for a target that should reasonably have references, mark caution
-- if context builder says stale, carry that forward
+- [ ] `src/repo_context/graph/risk_facts.py`
 
-### Suggested helper
+### Implement
 
-```python
-def collect_stale_symbols(conn, targets: list[RiskTarget]) -> list[str]:
-    ...
-```
+- [ ] `get_reference_count(conn, target_id)`
+- [ ] `get_referencing_file_count(conn, target_id)`
+- [ ] `get_referencing_module_count(conn, target_id)`
 
-Keep it simple.
+### Exact behavior
 
----
+#### `get_reference_count`
+- [ ] return the number of stored `references` edges where `to_id = target_id`
+- [ ] if references were never refreshed for the target, return a value consistent with the project’s availability handling and do not pretend fresh zero truth
 
-## Confidence facts
+#### `get_referencing_file_count`
+- [ ] count unique `evidence_file_id` values from `references` edges where `to_id = target_id`
 
-The engine should detect low-confidence data.
+#### `get_referencing_module_count`
+- [ ] derive module identity from source symbols of `references` edges where `to_id = target_id`
+- [ ] count unique source modules deterministically
 
-Examples:
-- target symbol confidence below `0.8`
-- incoming or outgoing reference edge confidence below `0.8`
+### Do not do
 
-### Suggested helpers
+- [ ] do not derive these facts from imports
+- [ ] do not treat unavailable reference enrichment as definitely zero without checking availability state
 
-```python
-def collect_low_confidence_symbols(conn, targets: list[RiskTarget], threshold: float = 0.8) -> list[str]:
-    ...
+### Done when
 
-def collect_low_confidence_edges(conn, targets: list[RiskTarget], threshold: float = 0.8) -> list[str]:
-    ...
-```
+- [ ] the engine can compute blast-radius facts from stored `references` data only
 
-### Why this matters
+***
 
-The engine should not act equally confident about exact AST structure and fuzzy LSP-mapped references.
+## Step 6 - Inheritance Risk Helper
 
----
+### File
 
-## Issue code design
+- [ ] `src/repo_context/graph/risk_facts.py`
 
-The engine should emit compact issue codes.
+### Implement
 
-Recommended initial issue codes:
+- [ ] `target_has_inheritance_risk(conn, target)`
 
-- `stale_context`
-- `low_confidence_match`
-- `high_reference_count`
-- `cross_file_impact`
-- `cross_module_impact`
-- `public_surface_change`
-- `inheritance_risk`
-- `multi_file_change`
-- `multi_module_change`
+### Exact behavior for class targets
 
-### Important note
+- [ ] if the class has outgoing `inherits` edges, return `True`
 
-Do **not** include `unresolved_target` here.
-That belongs more naturally to the later plan evaluator or target-resolution wrapper.
-The engine works on resolved targets.
+### Exact behavior for method targets
 
-This is another reason the phase should be `risk-engine`, not `plan-risk evaluator`.
+- [ ] resolve the parent class
+- [ ] if the parent class has outgoing `inherits` edges, return `True`
+- [ ] otherwise return `False`
 
----
+### Exact behavior for other target kinds
 
-## Rule detection
+- [ ] return `False`
 
-Create `risk_rules.py`.
+### Do not do
 
-Recommended helper:
+- [ ] do not invent override detection in this phase
+- [ ] do not perform deep inheritance traversal
 
-```python
-def detect_risk_issues(facts: RiskFacts) -> list[str]:
-    ...
-```
+### Done when
 
-### Suggested rules
+- [ ] the engine can flag inheritance involvement using stored structural graph facts only
 
-#### `stale_context`
-Trigger if:
-- `stale_symbols` is not empty
+***
 
-#### `low_confidence_match`
-Trigger if:
-- `low_confidence_symbols` is not empty
-- or `low_confidence_edges` is not empty
+## Step 7 - Freshness Fact Helpers
 
-#### `high_reference_count`
-Trigger if:
-- any target has reference count above threshold
+### File
 
-Suggested threshold:
-- `>= 10`
+- [ ] `src/repo_context/graph/risk_facts.py`
+
+### Implement
+
+- [ ] `collect_stale_symbols(conn, targets)`
+
+### Exact behavior
+
+A target must be considered stale if any of these are true:
+
+- [ ] the target node `last_indexed_at` is missing
+- [ ] the phase 5 context builder reports stale freshness for the target
+- [ ] reference data is unavailable for a target in a way that the project treats as caution-worthy
+
+### Required output
+
+- [ ] return a list of stale target symbol IDs
+- [ ] preserve deterministic order
+
+### Do not do
+
+- [ ] do not add time-age thresholds yet
+- [ ] do not invent smart freshness scoring in this phase
+
+### Done when
+
+- [ ] the engine can carry freshness risk forward from existing graph state honestly
+
+***
+
+## Step 8 - Confidence Fact Helpers
+
+### File
+
+- [ ] `src/repo_context/graph/risk_facts.py`
+
+### Implement
+
+- [ ] `collect_low_confidence_symbols(conn, targets, threshold=0.8)`
+- [ ] `collect_low_confidence_edges(conn, targets, threshold=0.8)`
+
+### Exact behavior for symbols
+
+- [ ] collect target symbol IDs whose stored symbol confidence is below threshold
+
+### Exact behavior for edges
+
+- [ ] inspect relevant edges touching the targets, especially `references` edges
+- [ ] collect edge IDs whose confidence is below threshold
+
+### Required output
+
+- [ ] preserve deterministic order
+- [ ] do not include duplicates
+
+### Do not do
+
+- [ ] do not inspect unrelated repo edges
+- [ ] do not hide low-confidence reference mappings
+
+### Done when
+
+- [ ] the engine can detect weak graph evidence explicitly
+
+***
+
+## Step 9 - Build Risk Facts
+
+### File
+
+- [ ] `src/repo_context/graph/risk_facts.py`
+
+### Implement
+
+- [ ] `build_risk_facts(conn, targets)`
+
+### Exact behavior
+
+This function must compute:
+
+- [ ] `target_count`
+- [ ] `symbol_ids`
+- [ ] `symbol_kinds`
+- [ ] `reference_counts`
+- [ ] `referencing_file_counts`
+- [ ] `referencing_module_counts`
+- [ ] `touches_public_surface`
+- [ ] `target_spans_multiple_files`
+- [ ] `target_spans_multiple_modules`
+- [ ] `cross_file_impact`
+- [ ] `cross_module_impact`
+- [ ] `inheritance_involved`
+- [ ] `stale_symbols`
+- [ ] `low_confidence_symbols`
+- [ ] `low_confidence_edges`
+- [ ] `extra`
+
+### Exact target spread rules
+
+#### `target_spans_multiple_files`
+- [ ] `True` if target set includes more than one distinct file ID
+- [ ] `False` otherwise
+
+#### `target_spans_multiple_modules`
+- [ ] `True` if target set includes more than one distinct module path
+- [ ] `False` otherwise
+
+### Exact reference spread rules
 
 #### `cross_file_impact`
-Trigger if:
-- `cross_file_impact` is true
+- [ ] `True` if any target has references from more than one file
+- [ ] or if any target is referenced from a file other than its own file
+- [ ] `False` otherwise
 
 #### `cross_module_impact`
-Trigger if:
-- `cross_module_impact` is true
+- [ ] `True` if any target has references from more than one module
+- [ ] or if any target is referenced from a module other than its own module
+- [ ] `False` otherwise
+
+### Exact public surface rule
+
+- [ ] `touches_public_surface = True` if any target is public-like
+- [ ] otherwise `False`
+
+### Exact inheritance rule
+
+- [ ] `inheritance_involved = True` if any target has inheritance risk
+- [ ] otherwise `False`
+
+### Required `extra` field rule
+
+- [ ] initialize `extra` as an empty dict unless a deterministic extra fact is actually stored
+
+### Do not do
+
+- [ ] do not jump directly to issues or score here
+- [ ] do not blend scoring weights into fact extraction
+
+### Done when
+
+- [ ] the engine has one clean deterministic fact layer that is reusable everywhere
+
+***
+
+## Step 10 - Issue Code Detection
+
+### File
+
+- [ ] `src/repo_context/graph/risk_rules.py`
+
+### Implement
+
+- [ ] `detect_risk_issues(facts)`
+
+### Allowed issue codes
+
+- [ ] `stale_context`
+- [ ] `low_confidence_match`
+- [ ] `high_reference_count`
+- [ ] `cross_file_impact`
+- [ ] `cross_module_impact`
+- [ ] `public_surface_change`
+- [ ] `inheritance_risk`
+- [ ] `multi_file_change`
+- [ ] `multi_module_change`
+
+Do not add `unresolved_target` in this phase.
+
+### Exact trigger rules
+
+#### `stale_context`
+- [ ] trigger if `facts.stale_symbols` is not empty
+
+#### `low_confidence_match`
+- [ ] trigger if `facts.low_confidence_symbols` is not empty
+- [ ] or if `facts.low_confidence_edges` is not empty
+
+#### `high_reference_count`
+- [ ] trigger if any target reference count is `>= 10`
+
+#### `cross_file_impact`
+- [ ] trigger if `facts.cross_file_impact` is `True`
+
+#### `cross_module_impact`
+- [ ] trigger if `facts.cross_module_impact` is `True`
 
 #### `public_surface_change`
-Trigger if:
-- `touches_public_surface` is true
+- [ ] trigger if `facts.touches_public_surface` is `True`
 
 #### `inheritance_risk`
-Trigger if:
-- `inheritance_involved` is true
+- [ ] trigger if `facts.inheritance_involved` is `True`
 
 #### `multi_file_change`
-Trigger if:
-- `target_spans_multiple_files` is true
+- [ ] trigger if `facts.target_spans_multiple_files` is `True`
 
 #### `multi_module_change`
-Trigger if:
-- `target_spans_multiple_modules` is true
+- [ ] trigger if `facts.target_spans_multiple_modules` is `True`
 
-That is enough for v1.
+### Required behavior
 
----
+- [ ] return issue codes in deterministic order
+- [ ] do not return duplicates
 
-## Scoring design
+### Do not do
 
-Create `risk_scoring.py`.
+- [ ] do not embed score values in issue strings
+- [ ] do not emit prose explanations instead of issue codes
 
-Recommended helpers:
+### Done when
 
-```python
-def score_risk(issues: list[str], facts: RiskFacts) -> int:
-    ...
+- [ ] facts cleanly translate into reusable issue codes
 
-def decide_risk(issues: list[str], facts: RiskFacts, score: int) -> str:
-    ...
-```
+***
 
-### Suggested starting weights
+## Step 11 - Risk Scoring
 
-- `stale_context`: +20
-- `low_confidence_match`: +20
-- `high_reference_count`: +20
-- `cross_file_impact`: +10
-- `cross_module_impact`: +15
-- `public_surface_change`: +15
-- `inheritance_risk`: +10
-- `multi_file_change`: +10
-- `multi_module_change`: +15
+### File
 
-Clamp to `0..100`.
+- [ ] `src/repo_context/graph/risk_scoring.py`
 
-### Why simple weights are good enough
+### Implement
 
-They are:
-- predictable
-- easy to explain
-- easy to tune later
+- [ ] `score_risk(issues, facts)`
 
-Do not waste time inventing a fake scientific risk model.
+### Exact weights
 
----
+- [ ] `stale_context` = `+20`
+- [ ] `low_confidence_match` = `+20`
+- [ ] `high_reference_count` = `+20`
+- [ ] `cross_file_impact` = `+10`
+- [ ] `cross_module_impact` = `+15`
+- [ ] `public_surface_change` = `+15`
+- [ ] `inheritance_risk` = `+10`
+- [ ] `multi_file_change` = `+10`
+- [ ] `multi_module_change` = `+15`
 
-## Decision design
+### Exact behavior
 
-The engine should produce a coarse decision.
+- [ ] sum weights of triggered issues
+- [ ] clamp final score to the integer range `0..100`
 
-Recommended decisions:
+### Do not do
 
-- `safe_enough`
-- `review_required`
-- `high_risk`
+- [ ] do not use floating score output in v1
+- [ ] do not invent nonlinear formulas in this phase
 
-### Suggested rules
+### Done when
 
-- `0-29` -> `safe_enough`
-- `30-69` -> `review_required`
-- `70-100` -> `high_risk`
+- [ ] score computation is simple, explicit, deterministic, and easy to tune
+
+***
+
+## Step 12 - Risk Decision
+
+### File
+
+- [ ] `src/repo_context/graph/risk_scoring.py`
+
+### Implement
+
+- [ ] `decide_risk(issues, facts, score)`
+
+### Allowed decisions
+
+- [ ] `safe_enough`
+- [ ] `review_required`
+- [ ] `high_risk`
+
+### Base threshold rules
+
+- [ ] `0..29` -> `safe_enough`
+- [ ] `30..69` -> `review_required`
+- [ ] `70..100` -> `high_risk`
 
 ### Override rules
 
-If:
-- `stale_context` exists
-- or `low_confidence_match` exists with other strong issues
+- [ ] if `stale_context` exists, final decision must be at least `review_required`
+- [ ] if `low_confidence_match` exists and at least one other non-trivial issue exists, final decision must be at least `review_required`
 
-Then bias upward toward at least `review_required`.
+### Do not do
 
-### Why this works
+- [ ] do not add workflow-policy decisions like `blocked`
+- [ ] do not let the decision contradict the clamped score and override rules
 
-The engine should communicate severity, not final workflow policy.
-Later the plan evaluator or MCP tool can add stricter gating.
+### Done when
 
----
+- [ ] the engine returns one coarse deterministic severity decision
 
-## Example `risk_facts.py` sketch
+***
 
-```python
-def build_risk_facts(conn, targets: list[RiskTarget]) -> RiskFacts:
-    facts = RiskFacts()
-    facts.target_count = len(targets)
-    facts.symbol_ids = [t.symbol_id for t in targets]
-    facts.symbol_kinds = {t.symbol_id: t.kind for t in targets}
+## Step 13 - Assemble Final Result
 
-    file_ids = set()
-    module_paths = set()
+### File
 
-    for target in targets:
-        file_ids.add(target.file_id)
-        module_paths.add(target.module_path)
+- [ ] `src/repo_context/graph/risk_engine.py`
 
-        ref_count = get_reference_count(conn, target.symbol_id)
-        ref_file_count = get_referencing_file_count(conn, target.symbol_id)
-        ref_module_count = get_referencing_module_count(conn, target.symbol_id)
+### Implement
 
-        facts.reference_counts[target.symbol_id] = ref_count
-        facts.referencing_file_counts[target.symbol_id] = ref_file_count
-        facts.referencing_module_counts[target.symbol_id] = ref_module_count
+Ensure the final result contains:
 
-        if is_public_like(target):
-            facts.touches_public_surface = True
+- [ ] normalized `targets`
+- [ ] built `facts`
+- [ ] detected `issues`
+- [ ] computed `risk_score`
+- [ ] computed `decision`
 
-        if ref_file_count >= 2:
-            facts.cross_file_impact = True
+### Required behavior
 
-        if ref_module_count >= 2:
-            facts.cross_module_impact = True
+- [ ] result ordering must be deterministic
+- [ ] target order must match normalized deterministic input order
+- [ ] issues order must match the engine’s deterministic rule order
 
-        if target_has_inheritance_risk(conn, target):
-            facts.inheritance_involved = True
+### Do not do
 
-    facts.target_spans_multiple_files = len(file_ids) >= 2
-    facts.target_spans_multiple_modules = len(module_paths) >= 2
-    facts.stale_symbols = collect_stale_symbols(conn, targets)
-    facts.low_confidence_symbols = collect_low_confidence_symbols(conn, targets)
-    facts.low_confidence_edges = collect_low_confidence_edges(conn, targets)
-
-    return facts
-```
-
-This is clean, deterministic, and reusable.
-
----
-
-## Example `risk_engine.py` sketch
-
-```python
-from repo_context.graph.risk_targets import load_risk_targets
-from repo_context.graph.risk_facts import build_risk_facts
-from repo_context.graph.risk_rules import detect_risk_issues
-from repo_context.graph.risk_scoring import score_risk, decide_risk
-
-def analyze_target_set_risk(conn, symbol_ids: list[str]) -> dict:
-    targets = load_risk_targets(conn, symbol_ids)
-    facts = build_risk_facts(conn, targets)
-    issues = detect_risk_issues(facts)
-    score = score_risk(issues, facts)
-    decision = decide_risk(issues, facts, score)
-
-    return {
-        "targets": [target.__dict__ for target in targets],
-        "facts": facts.__dict__,
-        "issues": issues,
-        "risk_score": score,
-        "decision": decision,
-    }
-
-def analyze_symbol_risk(conn, symbol_id: str) -> dict:
-    return analyze_target_set_risk(conn, [symbol_id])
-```
-
-This is exactly the kind of core engine you want.
-
----
-
-## CLI additions for this phase
-
-Add commands like:
-
-### `analyze-symbol-risk`
-
-```text
-repo-context analyze-symbol-risk <symbol-id>
-```
-
-What it does:
-- runs the risk engine on one symbol
-- prints facts, issues, score, decision
-
-### `analyze-target-set-risk`
-
-```text
-repo-context analyze-target-set-risk <symbol-id-1> <symbol-id-2> ...
-```
-
-What it does:
-- runs the risk engine on multiple symbols
-- prints aggregate result
-
-### Why this matters
-
-This lets you validate the engine before wrapping it in a plan evaluator or MCP tool.
-
----
-
-## Example output
-
-```json
-{
-  "targets": [
-    {
-      "symbol_id": "sym:repo:project:method:app.services.auth.AuthService.login",
-      "qualified_name": "app.services.auth.AuthService.login",
-      "kind": "method",
-      "file_id": "file:app/services/auth.py",
-      "file_path": "app/services/auth.py",
-      "module_path": "app.services.auth",
-      "visibility_hint": "public"
-    }
-  ],
-  "facts": {
-    "target_count": 1,
-    "symbol_ids": [
-      "sym:repo:project:method:app.services.auth.AuthService.login"
-    ],
-    "symbol_kinds": {
-      "sym:repo:project:method:app.services.auth.AuthService.login": "method"
-    },
-    "reference_counts": {
-      "sym:repo:project:method:app.services.auth.AuthService.login": 14
-    },
-    "referencing_file_counts": {
-      "sym:repo:project:method:app.services.auth.AuthService.login": 6
-    },
-    "referencing_module_counts": {
-      "sym:repo:project:method:app.services.auth.AuthService.login": 4
-    },
-    "touches_public_surface": true,
-    "target_spans_multiple_files": false,
-    "target_spans_multiple_modules": false,
-    "cross_file_impact": true,
-    "cross_module_impact": true,
-    "inheritance_involved": false,
-    "stale_symbols": [],
-    "low_confidence_symbols": [],
-    "low_confidence_edges": [],
-    "extra": {}
-  },
-  "issues": [
-    "high_reference_count",
-    "cross_file_impact",
-    "cross_module_impact",
-    "public_surface_change"
-  ],
-  "risk_score": 60,
-  "decision": "review_required"
-}
-```
+- [ ] do not drop facts from the final result
+- [ ] do not return only summarized text
 
-That is a strong v1 engine output.
+### Done when
 
----
+- [ ] one engine call returns a complete reusable machine-friendly `RiskResult`
 
-## Testing plan
+***
 
-This phase needs risk-centric tests.
+## Step 14 - CLI Commands
 
-### `test_analyze_low_risk_private_helper`
+### Files to modify
 
-Fixture:
-- `_helper()` used only locally
+- [ ] existing CLI module from earlier phases
 
-Expected:
-- few or no issues
-- low score
-- `safe_enough`
+### Implement
 
-### `test_analyze_public_heavily_referenced_method`
+Add these commands.
 
-Fixture:
-- public method referenced across multiple files
+### Command 1
+- [ ] `repo-context analyze-symbol-risk <symbol-id>`
 
-Expected:
-- `high_reference_count`
-- `cross_file_impact`
-- `cross_module_impact`
-- `public_surface_change`
+### Required behavior
+- [ ] analyze one symbol
+- [ ] print targets, facts, issues, risk score, and decision
 
-### `test_analyze_inheritance_risk`
+### Command 2
+- [ ] `repo-context analyze-target-set-risk <symbol-id-1> <symbol-id-2> ...`
 
-Fixture:
-- inherited class or subclassed base method
+### Required behavior
+- [ ] analyze multiple symbols
+- [ ] print aggregate result
 
-Expected:
-- `inheritance_risk`
+### Output rules
 
-### `test_analyze_multi_file_target_set`
+- [ ] JSON output is acceptable
+- [ ] deterministic readable structured text is acceptable
+- [ ] output must include all core engine fields
 
-Fixture:
-- target set spans multiple files
+### Do not do
 
-Expected:
-- `multi_file_change`
+- [ ] do not mix user-prose plan parsing into these commands
+- [ ] do not hide unavailable reference state from the printed facts
 
-### `test_analyze_multi_module_target_set`
+### Done when
 
-Fixture:
-- target set spans multiple modules
+- [ ] the risk engine can be inspected from CLI without any later plan wrapper
 
-Expected:
-- `multi_module_change`
+***
 
-### `test_stale_symbol_triggers_issue`
+## Step 15 - Tests
 
-Expected:
-- `stale_context`
+### Files to create or modify
 
-### `test_low_confidence_symbol_triggers_issue`
+- [ ] phase 7 tests under `tests/`
 
-Expected:
-- `low_confidence_match`
+### Implement these tests
 
-### `test_score_clamps_to_100`
+- [ ] `test_analyze_low_risk_private_helper`
+- [ ] `test_analyze_public_heavily_referenced_method`
+- [ ] `test_analyze_inheritance_risk`
+- [ ] `test_analyze_multi_file_target_set`
+- [ ] `test_analyze_multi_module_target_set`
+- [ ] `test_stale_symbol_triggers_issue`
+- [ ] `test_low_confidence_symbol_triggers_issue`
+- [ ] `test_score_clamps_to_100`
+- [ ] `test_high_score_returns_high_risk`
 
-Expected:
-- score never exceeds 100
+### Exact test assertions
 
-### `test_high_score_returns_high_risk`
+#### `test_analyze_low_risk_private_helper`
+- [ ] private-like helper with local use yields few or no issues
+- [ ] score is low
+- [ ] decision is `safe_enough`
 
-Expected:
-- decision becomes `high_risk`
+#### `test_analyze_public_heavily_referenced_method`
+- [ ] issues include `high_reference_count`
+- [ ] issues include `cross_file_impact`
+- [ ] issues include `cross_module_impact`
+- [ ] issues include `public_surface_change`
 
----
+#### `test_analyze_inheritance_risk`
+- [ ] inherited class or method context triggers `inheritance_risk`
 
-## Suggested fixtures
+#### `test_analyze_multi_file_target_set`
+- [ ] target set spanning multiple files triggers `multi_file_change`
 
-Use small realistic cases.
+#### `test_analyze_multi_module_target_set`
+- [ ] target set spanning multiple modules triggers `multi_module_change`
 
-### Fixture 1: local private helper
+#### `test_stale_symbol_triggers_issue`
+- [ ] stale targets produce `stale_context`
 
-One `_normalize_value()` function used in one file.
+#### `test_low_confidence_symbol_triggers_issue`
+- [ ] low-confidence symbols or edges produce `low_confidence_match`
 
-### Fixture 2: public service method
+#### `test_score_clamps_to_100`
+- [ ] score never exceeds `100`
 
-One public method referenced from several files.
+#### `test_high_score_returns_high_risk`
+- [ ] high enough score returns `high_risk`
 
-### Fixture 3: base class and subclass
+### Do not do
 
-A base service with subclasses.
+- [ ] do not rely only on smoke tests
+- [ ] do not leave issue ordering nondeterministic
 
-### Fixture 4: two-target refactor
+### Done when
 
-Two target symbols in different modules.
+- [ ] fact extraction, issue detection, scoring, and decisions are covered by deterministic tests
 
-These are enough to validate the engine.
+***
 
----
+## Step 16 - Fixture Validation
 
-## Acceptance checklist
+### Files to use
 
-Phase 7 is done when all of this is true:
+- [ ] reuse existing phase 3 through phase 6 fixtures
+- [ ] add small focused risk fixtures only if necessary
 
-- The engine can analyze one symbol.
-- The engine can analyze multiple symbols.
-- `RiskTarget` normalization exists.
-- `RiskFacts` extraction exists.
-- Issue detection exists.
-- Score computation exists.
-- Decision computation exists.
-- Public-surface heuristics work.
-- Reference spread facts work.
-- Inheritance risk works.
-- Freshness and confidence issues work.
-- CLI commands work.
-- Tests pass.
-- No MCP server exists yet.
-- No plan wrapper exists yet unless only as a thin adapter.
+### Minimum useful fixture cases
 
----
+- [ ] one local private helper
+- [ ] one public heavily referenced symbol
+- [ ] one inheritance case
+- [ ] one multi-file target set
+- [ ] one multi-module target set
 
-## Common mistakes to avoid
+### Implement
 
-### Mistake 1: Putting plan resolution inside the engine
+For at least one fixture path:
 
-The engine should work on resolved targets.
-Plan resolution belongs in a thin wrapper later.
+- [ ] build the graph through earlier phases
+- [ ] enrich references where needed
+- [ ] run the risk engine
+- [ ] assert exact facts, issues, score, and decision
 
-### Mistake 2: Making the engine return prose instead of structure
+### Do not do
 
-This is the exact place where structure wins.
+- [ ] do not require MCP or plan wrappers
+- [ ] do not depend on LLM output for assertions
 
-### Mistake 3: Treating unavailable reference data as zero
+### Done when
 
-Unavailable is not zero.
-Be honest.
+- [ ] phases 2 through 7 work together on deterministic risk analysis
 
-### Mistake 4: Scattering risk rules across the app
+***
 
-All core risk rules should live here.
+## Step 17 - Final Verification
 
-### Mistake 5: Overfitting thresholds too early
+Before marking phase 7 complete, verify all of the following:
 
-Pick practical defaults and tune them later.
-Do not obsess on the first pass.
+- [ ] the engine can analyze one symbol
+- [ ] the engine can analyze multiple symbols
+- [ ] `RiskTarget` normalization exists
+- [ ] `RiskFacts` extraction exists
+- [ ] issue detection exists
+- [ ] score computation exists
+- [ ] decision computation exists
+- [ ] public-surface heuristics work
+- [ ] reference spread facts work
+- [ ] inheritance risk works
+- [ ] freshness issues work
+- [ ] confidence issues work
+- [ ] CLI commands work
+- [ ] tests pass
+- [ ] no MCP server exists yet
+- [ ] no plan wrapper exists yet unless it is only a thin adapter
 
-### Mistake 6: Confusing engine output with workflow policy
+Do not mark phase 7 done until every box above is true.
 
-The engine says:
-- facts
-- issues
-- score
-- decision
+***
 
-A later workflow can decide:
-- ask for approval
-- block edits
-- revise plan
-- proceed
+## Required Execution Order
 
-That separation is important.
+Implement in this order and do not skip ahead:
 
----
+- [ ] Step 1 define risk types
+- [ ] Step 2 risk engine entry points
+- [ ] Step 3 target normalization
+- [ ] Step 4 public surface heuristic
+- [ ] Step 5 reference fact helpers
+- [ ] Step 6 inheritance risk helper
+- [ ] Step 7 freshness fact helpers
+- [ ] Step 8 confidence fact helpers
+- [ ] Step 9 build risk facts
+- [ ] Step 10 issue code detection
+- [ ] Step 11 risk scoring
+- [ ] Step 12 risk decision
+- [ ] Step 13 assemble final result
+- [ ] Step 14 CLI commands
+- [ ] Step 15 tests
+- [ ] Step 16 fixture validation
+- [ ] Step 17 final verification
 
-## What phase 8 will depend on
+***
 
-The next phase should use this engine to build a higher-level wrapper, likely through MCP.
+## Phase 7 Done Definition
 
-That next layer can:
-- resolve plan targets
-- call the risk engine
-- return a final plan-oriented assessment
+Phase 7 is complete only when all of these are true:
 
-That is why phase 7 should stay reusable and not collapse into one specific workflow shape.
-
----
-
-## Final guidance
-
-You were right to correct the naming.
-
-`risk-engine` is the better phase name because this layer is broader than one plan-evaluation tool. It is the reusable deterministic core that later powers plan checks, pre-edit review, and possibly other guarded workflows.
-
-Build it as a clean core service:
-
-- facts first
-- issues second
-- score third
-- decision last
-
-That keeps the architecture sane.
-```
+- [ ] phase 1 through phase 6 contracts remain intact
+- [ ] the risk engine is reusable outside any single workflow
+- [ ] facts are separated from issues
+- [ ] issues are separated from score
+- [ ] score is separated from decision
+- [ ] unavailable reference data is not misrepresented as fresh zero
+- [ ] CLI inspection works
+- [ ] tests pass
+- [ ] no out-of-scope workflow wrapper was baked into the engine

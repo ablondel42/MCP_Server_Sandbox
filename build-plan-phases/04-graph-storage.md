@@ -1,1108 +1,969 @@
-```md
-# 04-graph-storage.md
+# 04 Graph Storage - Exact Implementation Checklist
 
-## Purpose
+## Objective
 
-This phase turns the extracted symbols and structural relationships into a reliable stored graph.
+Implement phase 4 of the repository indexing pipeline.
 
-The AST phase already produced:
-- nodes
-- edges
-- structural hierarchy
-- file ownership
-- qualified names
+Phase 4 must take the nodes and edges produced by phase 3 and make them durable, queryable, replaceable, and inspectable in SQLite.
 
-Now the goal is to make that data durable, queryable, updatable, and clean.
-
-This phase is about graph storage, not graph intelligence.
-
-It should give you:
-- stable node and edge persistence
-- upsert behavior
+Phase 4 must provide:
+- stable node persistence
+- stable edge persistence
+- deterministic upserts
 - lookup helpers
-- file-level cleanup
-- repo-level queries
-- the minimum query surface needed for later context building, LSP mapping, and risk evaluation
+- file-level graph replacement
+- repo-level graph queries
+- CLI inspection commands
+- persistence and cleanup tests
 
-This phase does **not** do LSP enrichment yet.
-It does **not** compute plan risk yet.
-It does **not** expose MCP tools yet.
-
----
-
-## Why this phase matters
-
-Without reliable graph storage, the extraction work is temporary and fragile.
-
-If this layer is weak:
-- repeated scans create duplicates
-- deleted symbols stay forever
-- file updates leave stale edges behind
-- later context queries become inconsistent
-- LSP mapping has no stable graph to enrich
-- risk analysis becomes noisy or wrong
-
-The graph does not need to be fancy here.
-It just needs to be correct, inspectable, and predictable.
-
----
-
-## Phase goals
-
-By the end of this phase, you should have:
-
-- stable storage for nodes and edges in SQLite
-- upsert logic for nodes
-- upsert logic for edges
-- lookup by node ID
-- lookup by qualified name
-- listing nodes by file
-- listing nodes by repo
-- listing edges by repo
-- listing outgoing edges by node
-- listing incoming edges by node
-- file-level cleanup for stale nodes and edges
-- a basic graph query layer
-- CLI commands to inspect graph state
-- tests for graph persistence and cleanup
-
----
-
-## Phase non-goals
-
-Do **not** do any of this in phase 4:
-
-- LSP `references`
-- `referenced_by` derivation
-- rich symbol context assembly
+Phase 4 must not provide:
+- LSP enrichment
+- `references` edges
+- reverse reference derivation
+- symbol context assembly
 - risk scoring
-- MCP server registration
+- MCP tools
 - watch mode
 - semantic call graph logic
 
-This phase is storage and retrieval only.
+***
 
----
+## Consistency Rules
 
-## What already exists from previous phases
+These rules are mandatory.
+
+- [ ] Reuse the existing phase 1, phase 2, and phase 3 models, database schema style, naming style, serialization style, and storage patterns.
+- [ ] Do not invent a parallel persistence model for nodes or edges.
+- [ ] Do not rename existing database columns.
+- [ ] Do not change the schema contract unless this phase explicitly requires missing indexes.
+- [ ] Do not move graph logic into CLI code.
+- [ ] Do not scatter raw SQL across unrelated modules.
+- [ ] Keep JSON serialization behavior consistent with earlier phases.
+- [ ] Keep all persistence behavior deterministic.
+- [ ] Keep graph storage boring and predictable.
 
-This phase assumes you already have:
+***
+
+## Required Inputs
+
+Phase 4 must consume these existing inputs:
+
+- [ ] nodes produced by phase 3
+- [ ] edges produced by phase 3
+- [ ] SQLite connection from the existing storage layer
+- [ ] existing `nodes` table
+- [ ] existing `edges` table
+- [ ] existing CLI shell from earlier phases
+
+Do not add new mandatory infrastructure for this phase.
+
+***
 
-- phase 1: models, DB bootstrap, CLI shell
-- phase 2: repository scanning and file records
-- phase 3: AST extraction that produces nodes and structural edges
+## Required Outputs
 
-Phase 4 makes those outputs durable and queryable.
+Phase 4 must produce these capabilities:
 
----
+- [ ] upsert a node by stable ID
+- [ ] upsert multiple nodes by stable ID
+- [ ] upsert an edge by stable ID
+- [ ] upsert multiple edges by stable ID
+- [ ] fetch node by node ID
+- [ ] fetch node by qualified name
+- [ ] fetch edge by edge ID
+- [ ] list nodes for one file
+- [ ] list nodes for one repo
+- [ ] list child nodes by parent ID
+- [ ] list edges for one repo
+- [ ] list outgoing edges by `from_id`
+- [ ] list incoming edges by `to_id`
+- [ ] list edges for one file via `evidence_file_id`
+- [ ] delete nodes for one file
+- [ ] delete edges for one file
+- [ ] replace one file graph transactionally
+- [ ] compute basic graph stats for one repo
+- [ ] inspect graph state from CLI
 
-## What “graph storage” means here
+Do not add higher-level context assembly in this phase.
 
-Do not overcomplicate the word “graph”.
+***
 
-In this phase, “graph storage” just means:
+## Required File Layout
 
-- store nodes in one table
-- store edges in one table
-- provide simple directional queries
-- preserve source, confidence, evidence, and ownership
-- handle updates without leaving junk behind
+Use this file layout.
 
-That is enough for v1.
+Existing files may already exist from phase 3. Reuse them.
 
-You do **not** need:
-- a graph database
-- a graph query language
-- a graph visualization backend
-- fancy traversal engines
+- [ ] `src/repo_context/storage/nodes.py`
+- [ ] `src/repo_context/storage/edges.py`
+- [ ] `src/repo_context/storage/graph.py`
+- [ ] `src/repo_context/graph/__init__.py`
+- [ ] `src/repo_context/graph/queries.py`
+- [ ] `src/repo_context/graph/filters.py`
 
-SQLite is enough.
+If `storage/nodes.py` and `storage/edges.py` already exist, extend them instead of replacing them.
 
----
+Do not create extra graph packages unless strictly necessary.
 
-## Design principles
+***
 
-### Principle 1: SQLite is the source of stored graph truth
+## Schema Rules
+
+Apply these rules exactly.
 
-In-memory extraction results are temporary.
-SQLite is the persistent state.
+### Nodes table
 
-### Principle 2: Upserts must be deterministic
+Phase 4 assumes a `nodes` table already exists with these columns:
 
-Re-indexing the same file without changes should not create duplicate nodes or duplicate edges.
+- [ ] `id`
+- [ ] `repo_id`
+- [ ] `file_id`
+- [ ] `language`
+- [ ] `kind`
+- [ ] `name`
+- [ ] `qualified_name`
+- [ ] `uri`
+- [ ] `range_json`
+- [ ] `selection_range_json`
+- [ ] `parent_id`
+- [ ] `visibility_hint`
+- [ ] `doc_summary`
+- [ ] `content_hash`
+- [ ] `semantic_hash`
+- [ ] `source`
+- [ ] `confidence`
+- [ ] `payload_json`
+- [ ] `last_indexed_at`
 
-### Principle 3: File ownership must be respected
+### Edges table
 
-Every node belongs to a file.
-Every edge must either belong to a file through evidence or be cleanly attributable.
+Phase 4 assumes an `edges` table already exists with these columns:
 
-That makes cleanup possible.
+- [ ] `id`
+- [ ] `repo_id`
+- [ ] `kind`
+- [ ] `from_id`
+- [ ] `to_id`
+- [ ] `source`
+- [ ] `confidence`
+- [ ] `evidence_file_id`
+- [ ] `evidence_uri`
+- [ ] `evidence_range_json`
+- [ ] `payload_json`
+- [ ] `last_indexed_at`
 
-### Principle 4: Cleanup is part of correctness
+Do not rename these columns.
 
-If a file changes, stale nodes and stale edges from the old extraction must be removable.
-Otherwise the graph rots.
+***
 
-### Principle 5: Queries should be boring
+## Required Indexes
 
-You only need simple graph queries at this stage:
-- direct lookups
-- incoming edges
-- outgoing edges
-- parent-child retrieval
-- file-scoped lists
-- repo-scoped lists
+Ensure these indexes exist.
 
----
+### Node indexes
 
-## Graph storage responsibilities
+- [ ] index on `nodes(repo_id)`
+- [ ] index on `nodes(file_id)`
+- [ ] index on `nodes(qualified_name)`
+- [ ] index on `nodes(parent_id)`
+- [ ] index on `nodes(kind)`
 
-This phase should provide:
+### Edge indexes
 
-- persistence repositories for nodes and edges
-- cleanup helpers
-- normalized serialization and deserialization
-- graph lookup helpers
-- basic integrity rules
+- [ ] index on `edges(repo_id)`
+- [ ] index on `edges(from_id)`
+- [ ] index on `edges(to_id)`
+- [ ] index on `edges(kind)`
+- [ ] index on `edges(evidence_file_id)`
 
-It should **not** provide:
-- interpretation
-- plan assessment
-- English explanations
-- agent-oriented narratives
+If these indexes already exist from earlier phases, do not recreate them differently.
 
----
+***
 
-## Recommended package structure additions
+## Storage Responsibilities
 
-Add these files:
+Apply these boundaries exactly.
 
-```text
-src/
-  repo_context/
-    storage/
-      nodes.py
-      edges.py
-      graph.py
-    graph/
-      __init__.py
-      queries.py
-      filters.py
-```
-
-### Why this split
-
-- `storage/nodes.py`: low-level node persistence
-- `storage/edges.py`: low-level edge persistence
-- `storage/graph.py`: file-level cleanup and small transactional helpers
-- `graph/queries.py`: graph-oriented retrieval helpers
-- `graph/filters.py`: reusable filtering utilities if needed
-
-Keep storage and query concerns close but not mashed together.
-
----
-
-## Database schema expectations
-
-This phase assumes your SQLite schema already contains `nodes` and `edges`.
-
-Recommended `nodes` table:
-
-```sql
-CREATE TABLE IF NOT EXISTS nodes (
-  id TEXT PRIMARY KEY,
-  repo_id TEXT NOT NULL,
-  file_id TEXT NOT NULL,
-  language TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  name TEXT NOT NULL,
-  qualified_name TEXT NOT NULL,
-  uri TEXT NOT NULL,
-  range_json TEXT,
-  selection_range_json TEXT,
-  parent_id TEXT,
-  visibility_hint TEXT,
-  doc_summary TEXT,
-  content_hash TEXT NOT NULL,
-  semantic_hash TEXT NOT NULL,
-  source TEXT NOT NULL,
-  confidence REAL NOT NULL,
-  payload_json TEXT NOT NULL,
-  last_indexed_at TEXT
-);
-```
-
-Recommended `edges` table:
-
-```sql
-CREATE TABLE IF NOT EXISTS edges (
-  id TEXT PRIMARY KEY,
-  repo_id TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  from_id TEXT NOT NULL,
-  to_id TEXT NOT NULL,
-  source TEXT NOT NULL,
-  confidence REAL NOT NULL,
-  evidence_file_id TEXT,
-  evidence_uri TEXT,
-  evidence_range_json TEXT,
-  payload_json TEXT NOT NULL,
-  last_indexed_at TEXT
-);
-```
-
-### Recommended indexes
-
-Add indexes now.
-SQLite still benefits from them.
-
-```sql
-CREATE INDEX IF NOT EXISTS idx_nodes_repo_id ON nodes(repo_id);
-CREATE INDEX IF NOT EXISTS idx_nodes_file_id ON nodes(file_id);
-CREATE INDEX IF NOT EXISTS idx_nodes_qualified_name ON nodes(qualified_name);
-CREATE INDEX IF NOT EXISTS idx_nodes_parent_id ON nodes(parent_id);
-CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
-
-CREATE INDEX IF NOT EXISTS idx_edges_repo_id ON edges(repo_id);
-CREATE INDEX IF NOT EXISTS idx_edges_from_id ON edges(from_id);
-CREATE INDEX IF NOT EXISTS idx_edges_to_id ON edges(to_id);
-CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
-CREATE INDEX IF NOT EXISTS idx_edges_evidence_file_id ON edges(evidence_file_id);
-```
-
-### Why these indexes matter
-
-Later phases will often query:
-- node by qualified name
-- children by parent ID
-- outgoing edges by `from_id`
-- incoming edges by `to_id`
-- file-owned graph records by `file_id`
-
-So index them now.
-
----
-
-## Node persistence design
-
-The node storage layer should own:
-
-- insert or update node
-- bulk insert or update nodes
-- fetch node by ID
-- fetch node by qualified name
-- list nodes by file
-- list nodes by repo
-- delete nodes by file
-- delete nodes by repo if needed later
+### `storage/nodes.py`
 
-### Recommended functions in `storage/nodes.py`
+This module must own:
+- [ ] node row mapping
+- [ ] node upsert
+- [ ] bulk node upsert
+- [ ] node fetch by ID
+- [ ] node fetch by qualified name
+- [ ] node listing by file
+- [ ] node listing by repo
+- [ ] child node listing by parent
+- [ ] file-level node deletion
 
-```python
-def upsert_node(conn, node) -> None:
-    ...
+### `storage/edges.py`
 
-def upsert_nodes(conn, nodes: list) -> None:
-    ...
+This module must own:
+- [ ] edge row mapping
+- [ ] edge upsert
+- [ ] bulk edge upsert
+- [ ] edge fetch by ID
+- [ ] edge listing by repo
+- [ ] outgoing edge listing
+- [ ] incoming edge listing
+- [ ] file-level edge listing
+- [ ] file-level edge deletion
 
-def get_node_by_id(conn, node_id: str):
-    ...
+### `storage/graph.py`
 
-def get_node_by_qualified_name(conn, repo_id: str, qualified_name: str, kind: str | None = None):
-    ...
+This module must own:
+- [ ] file graph replacement transaction
+- [ ] small transactional graph helpers only
 
-def list_nodes_for_file(conn, file_id: str) -> list:
-    ...
+### `graph/queries.py`
 
-def list_nodes_for_repo(conn, repo_id: str) -> list:
-    ...
+This module must own:
+- [ ] graph-oriented read helpers
+- [ ] no raw persistence mutation logic
 
-def list_child_nodes(conn, parent_id: str) -> list:
-    ...
-
-def delete_nodes_for_file(conn, file_id: str) -> None:
-    ...
-```
-
----
-
-## Edge persistence design
-
-The edge storage layer should own:
-
-- insert or update edge
-- bulk insert or update edges
-- fetch edge by ID
-- list edges by repo
-- list outgoing edges by node
-- list incoming edges by node
-- list edges by file evidence
-- delete edges by file evidence
-
-### Recommended functions in `storage/edges.py`
-
-```python
-def upsert_edge(conn, edge) -> None:
-    ...
-
-def upsert_edges(conn, edges: list) -> None:
-    ...
-
-def get_edge_by_id(conn, edge_id: str):
-    ...
-
-def list_edges_for_repo(conn, repo_id: str) -> list:
-    ...
-
-def list_outgoing_edges(conn, from_id: str, kind: str | None = None) -> list:
-    ...
-
-def list_incoming_edges(conn, to_id: str, kind: str | None = None) -> list:
-    ...
-
-def list_edges_for_file(conn, file_id: str) -> list:
-    ...
-
-def delete_edges_for_file(conn, file_id: str) -> None:
-    ...
-```
-
----
-
-## Serialization strategy
-
-Your models likely contain nested data such as:
-- ranges
-- selection ranges
-- payloads
-- evidence ranges
-
-These should be serialized to JSON strings for storage.
-
-### Good rule
-
-Serialization should happen in one place, not copied all over the codebase.
-
-Recommended pattern:
-- domain model in Python
-- storage adapter converts it to row values
-- row loader converts back to Python structures
-
-### Why this matters
-
-If serialization is duplicated in five files, bugs multiply fast.
-
----
-
-## Suggested node row mapping
-
-Use explicit mapping functions.
-
-Example:
-
-```python
-import json
-from dataclasses import asdict, is_dataclass
-
-def _json_dump(value) -> str | None:
-    if value is None:
-        return None
-    if is_dataclass(value):
-        return json.dumps(asdict(value), sort_keys=True)
-    return json.dumps(value, sort_keys=True)
-
-def node_to_row(node: dict) -> dict:
-    return {
-        "id": node["id"],
-        "repo_id": node["repo_id"],
-        "file_id": node["file_id"],
-        "language": node["language"],
-        "kind": node["kind"],
-        "name": node["name"],
-        "qualified_name": node["qualified_name"],
-        "uri": node["uri"],
-        "range_json": _json_dump(node.get("range_json")),
-        "selection_range_json": _json_dump(node.get("selection_range_json")),
-        "parent_id": node.get("parent_id"),
-        "visibility_hint": node.get("visibility_hint"),
-        "doc_summary": node.get("doc_summary"),
-        "content_hash": node["content_hash"],
-        "semantic_hash": node["semantic_hash"],
-        "source": node["source"],
-        "confidence": node["confidence"],
-        "payload_json": _json_dump(node.get("payload_json", {})),
-        "last_indexed_at": node.get("last_indexed_at"),
-    }
-}
-```
-
-### Important note
-
-If your in-memory nodes are dataclasses instead of dicts, that is fine.
-The important thing is to keep storage mapping explicit.
-
----
-
-## Suggested edge row mapping
-
-```python
-def edge_to_row(edge: dict) -> dict:
-    return {
-        "id": edge["id"],
-        "repo_id": edge["repo_id"],
-        "kind": edge["kind"],
-        "from_id": edge["from_id"],
-        "to_id": edge["to_id"],
-        "source": edge["source"],
-        "confidence": edge["confidence"],
-        "evidence_file_id": edge.get("evidence_file_id"),
-        "evidence_uri": edge.get("evidence_uri"),
-        "evidence_range_json": _json_dump(edge.get("evidence_range_json")),
-        "payload_json": _json_dump(edge.get("payload_json", {})),
-        "last_indexed_at": edge.get("last_indexed_at"),
-    }
-}
-```
-
----
-
-## Upsert strategy
+### `graph/filters.py`
 
-Use SQLite upserts.
+This module may own:
+- [ ] optional reusable filtering helpers
+- [ ] no required complex logic for v1
 
-### Why upserts matter
+Do not move business logic or risk logic into these modules.
 
-When you re-index a file:
-- the same node ID should update, not duplicate
-- the same edge ID should update, not duplicate
+***
 
-### Recommended SQL pattern
+## Serialization Rules
 
-```sql
-INSERT INTO nodes (...)
-VALUES (...)
-ON CONFLICT(id) DO UPDATE SET
-  repo_id = excluded.repo_id,
-  file_id = excluded.file_id,
-  language = excluded.language,
-  kind = excluded.kind,
-  name = excluded.name,
-  qualified_name = excluded.qualified_name,
-  uri = excluded.uri,
-  range_json = excluded.range_json,
-  selection_range_json = excluded.selection_range_json,
-  parent_id = excluded.parent_id,
-  visibility_hint = excluded.visibility_hint,
-  doc_summary = excluded.doc_summary,
-  content_hash = excluded.content_hash,
-  semantic_hash = excluded.semantic_hash,
-  source = excluded.source,
-  confidence = excluded.confidence,
-  payload_json = excluded.payload_json,
-  last_indexed_at = excluded.last_indexed_at;
-```
+Apply these rules exactly.
 
-Do the same pattern for edges.
+- [ ] all nested structured fields must be serialized to JSON strings before storage
+- [ ] all JSON serialization must happen in explicit row-mapping helpers
+- [ ] all row-loading logic must deserialize JSON consistently
+- [ ] `range_json` must store serialized range data
+- [ ] `selection_range_json` must store serialized selection range data
+- [ ] `payload_json` must store serialized payload data
+- [ ] `evidence_range_json` must store serialized evidence range data
 
-### Important rule
+Do not duplicate JSON conversion logic in many files.
 
-Use `id` as the main conflict key.
-Do not rely only on qualified name uniqueness.
+***
 
----
+## Step 1 - Add or Verify Indexes
 
-## Cleanup strategy
+### Files to modify
 
-This is one of the most important parts of the phase.
+- [ ] existing migration or DB initialization module from earlier phases
 
-When a file is re-extracted, the system must be able to remove stale graph state tied to the old version of that file.
+### Implement
 
-### What should be cleaned for a file
+- [ ] verify the five required node indexes exist
+- [ ] verify the five required edge indexes exist
+- [ ] add missing indexes with `CREATE INDEX IF NOT EXISTS`
 
-At minimum:
-- nodes owned by that file
-- edges whose evidence belongs to that file
+### Do not do
 
-### Why `evidence_file_id` matters
+- [ ] do not change table definitions unless the schema is actually missing required columns
+- [ ] do not add speculative indexes not used by this phase
 
-Without file-level evidence ownership, cleanup becomes much harder.
+### Done when
 
-### Recommended file refresh sequence
+- [ ] all required graph indexes exist in SQLite
 
-When reprocessing one file:
+***
 
-1. delete edges for that file
-2. delete nodes for that file
-3. insert fresh nodes
-4. insert fresh edges
-5. commit transaction
+## Step 2 - Node Row Mapping
 
-### Why delete then insert
+### File
 
-This is often simpler and safer than trying to diff all previous nodes and edges for one file.
+- [ ] `src/repo_context/storage/nodes.py`
 
-For v1, boring wins.
+### Implement
 
----
+Add explicit row mapping helpers for nodes.
 
-## `storage/graph.py` helper
+### Required behavior
 
-Create one helper to refresh graph state for a file.
+- [ ] convert in-memory node representation to DB row values
+- [ ] serialize `range_json` to JSON string or `None`
+- [ ] serialize `selection_range_json` to JSON string or `None`
+- [ ] serialize `payload_json` to JSON string
+- [ ] preserve scalar fields exactly
+- [ ] support deterministic JSON serialization
 
-Recommended function:
+### Also implement
 
-```python
-def replace_file_graph(conn, file_id: str, nodes: list, edges: list) -> None:
-    ...
-```
+- [ ] row-to-node conversion helper
+- [ ] deserialize JSON fields back into Python structures
 
-### Expected behavior
+### Do not do
 
-- begin transaction
-- delete old file-owned edges
-- delete old file-owned nodes
-- insert fresh nodes
-- insert fresh edges
-- commit
+- [ ] do not inline JSON dumping in every query function
+- [ ] do not leave row mapping implicit
 
-### Why this function matters
+### Done when
 
-Later the AST pipeline and LSP enrichment pipeline can both reuse it or build on the same pattern.
+- [ ] node storage uses one explicit mapping path in both directions
 
----
+***
 
-## Query layer design
+## Step 3 - Edge Row Mapping
 
-This phase should add a simple graph query layer.
+### File
 
-The query layer should not be “smart”.
-It should just make retrieval less repetitive.
+- [ ] `src/repo_context/storage/edges.py`
 
-### Recommended functions in `graph/queries.py`
+### Implement
 
-```python
-def get_symbol(conn, node_id: str):
-    ...
+Add explicit row mapping helpers for edges.
 
-def get_symbol_by_qualified_name(conn, repo_id: str, qualified_name: str, kind: str | None = None):
-    ...
+### Required behavior
 
-def get_parent_symbol(conn, node):
-    ...
+- [ ] convert in-memory edge representation to DB row values
+- [ ] serialize `evidence_range_json` to JSON string or `None`
+- [ ] serialize `payload_json` to JSON string
+- [ ] preserve scalar fields exactly
+- [ ] support deterministic JSON serialization
 
-def get_child_symbols(conn, node_id: str):
-    ...
+### Also implement
 
-def get_outgoing_edges(conn, node_id: str, kind: str | None = None):
-    ...
+- [ ] row-to-edge conversion helper
+- [ ] deserialize JSON fields back into Python structures
 
-def get_incoming_edges(conn, node_id: str, kind: str | None = None):
-    ...
+### Do not do
 
-def get_symbols_for_file(conn, file_id: str):
-    ...
+- [ ] do not inline JSON dumping in every edge query
+- [ ] do not leave row mapping implicit
 
-def get_repo_graph_stats(conn, repo_id: str):
-    ...
-```
+### Done when
 
-### Why this matters
+- [ ] edge storage uses one explicit mapping path in both directions
 
-Later phases like context assembly and risk assessment should not write raw SQL over and over.
+***
 
----
+## Step 4 - Node Upsert
 
-## Suggested graph stats query
+### File
 
-A tiny summary helper is useful now.
+- [ ] `src/repo_context/storage/nodes.py`
 
-Example output:
+### Implement
 
-```json
-{
-  "repo_id": "repo:project",
-  "node_count": 188,
-  "edge_count": 344,
-  "module_count": 12,
-  "class_count": 25,
-  "callable_count": 151
-}
-```
+- [ ] `upsert_node(conn, node)`
 
-### Why this is useful
+### Exact behavior
 
-- quick sanity check after indexing
-- easy CLI reporting
-- simple debugging
+- [ ] insert node if `id` does not exist
+- [ ] update node if `id` already exists
+- [ ] use `ON CONFLICT(id) DO UPDATE`
+- [ ] update all persisted columns on conflict
+- [ ] use node `id` as the only conflict key
 
----
+### Do not do
 
-## Parent-child traversal rules
+- [ ] do not use qualified name as the conflict key
+- [ ] do not create duplicate rows for the same node ID
 
-Because the graph is layered, the basic hierarchy should already be queryable now.
+### Done when
 
-Expected examples:
+- [ ] reinserting the same node ID updates the row instead of duplicating it
 
-- module -> classes
-- module -> top-level functions
-- class -> methods
+***
 
-This can be derived either from:
-- `parent_id` on nodes
-- `contains` edges
+## Step 5 - Bulk Node Upsert
 
-### Recommendation
+### File
 
-Support both, but prefer node `parent_id` for direct parent lookup and `contains` edges for explicit structural graph semantics.
+- [ ] `src/repo_context/storage/nodes.py`
 
-Why:
-- `parent_id` is efficient for hierarchy
-- `contains` edges keep the graph model explicit
+### Implement
 
-That dual representation is acceptable here because they serve slightly different needs.
+- [ ] `upsert_nodes(conn, nodes)`
 
----
+### Exact behavior
 
-## Integrity expectations
+- [ ] call node upsert logic for every node
+- [ ] support inserting or updating multiple nodes in one operation
+- [ ] preserve deterministic behavior
 
-This phase should enforce a few practical integrity rules.
+### Do not do
 
-### Rule 1: Every node must belong to a repo and file
+- [ ] do not silently skip bad rows
 
-No orphan nodes.
+### Done when
 
-### Rule 2: Every edge must belong to a repo
+- [ ] multiple nodes can be persisted reliably in one call
 
-No repo-less edges.
+***
 
-### Rule 3: Edge endpoints should usually exist
+## Step 6 - Node Read Helpers
 
-For placeholders like unresolved imports or unresolved bases, the target may be a synthetic placeholder ID instead of a real node.
-That is okay.
+### File
 
-### Rule 4: File cleanup must not leave file-owned junk behind
+- [ ] `src/repo_context/storage/nodes.py`
 
-After replacing a file graph, old nodes and old evidence-owned edges for that file should be gone.
+### Implement
 
----
+- [ ] `get_node_by_id(conn, node_id)`
+- [ ] `get_node_by_qualified_name(conn, repo_id, qualified_name, kind=None)`
+- [ ] `list_nodes_for_file(conn, file_id)`
+- [ ] `list_nodes_for_repo(conn, repo_id)`
+- [ ] `list_child_nodes(conn, parent_id)`
 
-## Placeholder target strategy
+### Exact behavior
 
-Not every edge target will be a real stored node yet.
+#### `get_node_by_id`
+- [ ] return one node or `None`
 
-Examples:
-- unresolved import target
-- unresolved base class
-- external dependency symbol
+#### `get_node_by_qualified_name`
+- [ ] filter by `repo_id`
+- [ ] filter by `qualified_name`
+- [ ] if `kind` is provided, include `kind` filter
+- [ ] return one node or `None`
 
-That is fine.
+#### `list_nodes_for_file`
+- [ ] return all nodes with matching `file_id`
+- [ ] order by `kind`, then `qualified_name`
 
-### Good rule
+#### `list_nodes_for_repo`
+- [ ] return all nodes with matching `repo_id`
+- [ ] order by `kind`, then `qualified_name`
 
-Use clearly synthetic target IDs like:
+#### `list_child_nodes`
+- [ ] return all nodes with matching `parent_id`
+- [ ] order by `kind`, then `name`
 
-- `external_or_unresolved:app.core.security`
-- `unresolved_base:BaseService`
+### Do not do
 
-Do not try to fake these as real nodes unless you actually model them.
+- [ ] do not return raw SQLite rows to callers
+- [ ] do not leave ordering nondeterministic
 
-### Why this matters
+### Done when
 
-Honest unresolved targets are better than fake resolved ones.
+- [ ] node retrieval is deterministic and returns deserialized structures
 
----
+***
 
-## CLI additions for this phase
+## Step 7 - Delete Nodes for File
 
-Add a few inspection-oriented CLI commands.
+### File
 
-### Suggested commands
+- [ ] `src/repo_context/storage/nodes.py`
 
-#### `graph-stats`
+### Implement
 
-Usage:
-```text
-repo-context graph-stats <repo-id>
-```
+- [ ] `delete_nodes_for_file(conn, file_id)`
 
-What it does:
-- prints counts of nodes and edges by kind
+### Exact behavior
 
-#### `list-nodes`
+- [ ] delete all node rows where `file_id = ?`
 
-Usage:
-```text
-repo-context list-nodes <repo-id>
-```
+### Do not do
 
-What it does:
-- lists stored nodes, maybe with optional filters
+- [ ] do not delete nodes for other files
+- [ ] do not combine edge deletion inside this function
 
-#### `list-edges`
+### Done when
 
-Usage:
-```text
-repo-context list-edges <repo-id>
-```
+- [ ] all nodes owned by one file can be removed cleanly
 
-What it does:
-- lists stored edges, maybe with optional filters
+***
 
-#### `show-node`
+## Step 8 - Edge Upsert
 
-Usage:
-```text
-repo-context show-node <node-id>
-```
+### File
 
-What it does:
-- prints one node and maybe its immediate parent/children summary
+- [ ] `src/repo_context/storage/edges.py`
 
-### Why this matters
+### Implement
 
-Before MCP exists, the CLI is your cheapest debugging tool.
+- [ ] `upsert_edge(conn, edge)`
 
----
+### Exact behavior
 
-## Recommended implementation sequence
+- [ ] insert edge if `id` does not exist
+- [ ] update edge if `id` already exists
+- [ ] use `ON CONFLICT(id) DO UPDATE`
+- [ ] update all persisted columns on conflict
+- [ ] use edge `id` as the only conflict key
 
-Build phase 4 in this order:
+### Do not do
 
-1. add DB indexes
-2. write node row mappers
-3. write edge row mappers
-4. implement node upsert and fetch helpers
-5. implement edge upsert and fetch helpers
-6. implement file-level delete helpers
-7. implement `replace_file_graph`
-8. implement graph query helpers
-9. add CLI inspection commands
-10. write tests around replacement and retrieval
+- [ ] do not use `from_id` plus `to_id` as conflict key
+- [ ] do not create duplicate rows for the same edge ID
 
-Do not jump straight to fancy query helpers before the persistence layer is solid.
+### Done when
 
----
+- [ ] reinserting the same edge ID updates the row instead of duplicating it
 
-## Example node repository sketch
+***
 
-```python
-def upsert_node(conn, node: dict) -> None:
-    row = node_to_row(node)
-    conn.execute(
-        """
-        INSERT INTO nodes (
-            id, repo_id, file_id, language, kind, name, qualified_name, uri,
-            range_json, selection_range_json, parent_id, visibility_hint,
-            doc_summary, content_hash, semantic_hash, source, confidence,
-            payload_json, last_indexed_at
-        ) VALUES (
-            :id, :repo_id, :file_id, :language, :kind, :name, :qualified_name, :uri,
-            :range_json, :selection_range_json, :parent_id, :visibility_hint,
-            :doc_summary, :content_hash, :semantic_hash, :source, :confidence,
-            :payload_json, :last_indexed_at
-        )
-        ON CONFLICT(id) DO UPDATE SET
-            repo_id = excluded.repo_id,
-            file_id = excluded.file_id,
-            language = excluded.language,
-            kind = excluded.kind,
-            name = excluded.name,
-            qualified_name = excluded.qualified_name,
-            uri = excluded.uri,
-            range_json = excluded.range_json,
-            selection_range_json = excluded.selection_range_json,
-            parent_id = excluded.parent_id,
-            visibility_hint = excluded.visibility_hint,
-            doc_summary = excluded.doc_summary,
-            content_hash = excluded.content_hash,
-            semantic_hash = excluded.semantic_hash,
-            source = excluded.source,
-            confidence = excluded.confidence,
-            payload_json = excluded.payload_json,
-            last_indexed_at = excluded.last_indexed_at
-        """,
-        row,
-    )
-```
+## Step 9 - Bulk Edge Upsert
 
-That is enough.
-Do not overabstract this away too early.
+### File
 
----
+- [ ] `src/repo_context/storage/edges.py`
 
-## Example edge repository sketch
+### Implement
 
-```python
-def upsert_edge(conn, edge: dict) -> None:
-    row = edge_to_row(edge)
-    conn.execute(
-        """
-        INSERT INTO edges (
-            id, repo_id, kind, from_id, to_id, source, confidence,
-            evidence_file_id, evidence_uri, evidence_range_json,
-            payload_json, last_indexed_at
-        ) VALUES (
-            :id, :repo_id, :kind, :from_id, :to_id, :source, :confidence,
-            :evidence_file_id, :evidence_uri, :evidence_range_json,
-            :payload_json, :last_indexed_at
-        )
-        ON CONFLICT(id) DO UPDATE SET
-            repo_id = excluded.repo_id,
-            kind = excluded.kind,
-            from_id = excluded.from_id,
-            to_id = excluded.to_id,
-            source = excluded.source,
-            confidence = excluded.confidence,
-            evidence_file_id = excluded.evidence_file_id,
-            evidence_uri = excluded.evidence_uri,
-            evidence_range_json = excluded.evidence_range_json,
-            payload_json = excluded.payload_json,
-            last_indexed_at = excluded.last_indexed_at
-        """,
-        row,
-    )
-```
+- [ ] `upsert_edges(conn, edges)`
 
----
+### Exact behavior
 
-## Example file graph replacement sketch
+- [ ] call edge upsert logic for every edge
+- [ ] support inserting or updating multiple edges in one operation
+- [ ] preserve deterministic behavior
 
-```python
-def replace_file_graph(conn, file_id: str, nodes: list[dict], edges: list[dict]) -> None:
-    try:
-        conn.execute("BEGIN")
-        conn.execute("DELETE FROM edges WHERE evidence_file_id = ?", (file_id,))
-        conn.execute("DELETE FROM nodes WHERE file_id = ?", (file_id,))
+### Do not do
 
-        for node in nodes:
-            upsert_node(conn, node)
+- [ ] do not silently skip bad rows
 
-        for edge in edges:
-            upsert_edge(conn, edge)
+### Done when
 
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-```
+- [ ] multiple edges can be persisted reliably in one call
 
-### Important note
+***
 
-This is a simple v1 strategy.
-It is not fancy, but it is easy to reason about.
+## Step 10 - Edge Read Helpers
 
----
+### File
 
-## Query examples
+- [ ] `src/repo_context/storage/edges.py`
 
-### Get node by ID
+### Implement
 
-```sql
-SELECT * FROM nodes WHERE id = ?;
-```
+- [ ] `get_edge_by_id(conn, edge_id)`
+- [ ] `list_edges_for_repo(conn, repo_id)`
+- [ ] `list_outgoing_edges(conn, from_id, kind=None)`
+- [ ] `list_incoming_edges(conn, to_id, kind=None)`
+- [ ] `list_edges_for_file(conn, file_id)`
 
-### Get node by qualified name
+### Exact behavior
 
-```sql
-SELECT * FROM nodes
-WHERE repo_id = ? AND qualified_name = ?
-LIMIT 1;
-```
+#### `get_edge_by_id`
+- [ ] return one edge or `None`
 
-### Get child nodes
+#### `list_edges_for_repo`
+- [ ] return all edges with matching `repo_id`
+- [ ] order by `kind`, then `from_id`, then `to_id`
 
-```sql
-SELECT * FROM nodes
-WHERE parent_id = ?
-ORDER BY kind, name;
-```
+#### `list_outgoing_edges`
+- [ ] filter by `from_id`
+- [ ] if `kind` is provided, also filter by `kind`
+- [ ] order by `kind`, then `to_id`
 
-### Get outgoing edges
+#### `list_incoming_edges`
+- [ ] filter by `to_id`
+- [ ] if `kind` is provided, also filter by `kind`
+- [ ] order by `kind`, then `from_id`
 
-```sql
-SELECT * FROM edges
-WHERE from_id = ?
-ORDER BY kind, to_id;
-```
+#### `list_edges_for_file`
+- [ ] filter by `evidence_file_id`
+- [ ] order by `kind`, then `from_id`, then `to_id`
 
-### Get incoming edges
+### Do not do
 
-```sql
-SELECT * FROM edges
-WHERE to_id = ?
-ORDER BY kind, from_id;
-```
+- [ ] do not return raw SQLite rows to callers
+- [ ] do not leave ordering nondeterministic
 
-### Get file-owned nodes
+### Done when
 
-```sql
-SELECT * FROM nodes
-WHERE file_id = ?
-ORDER BY kind, qualified_name;
-```
+- [ ] edge retrieval is deterministic and returns deserialized structures
 
-These are enough for now.
+***
 
----
+## Step 11 - Delete Edges for File
 
-## Testing plan
+### File
 
-This phase needs more than smoke tests.
-It needs persistence correctness tests.
+- [ ] `src/repo_context/storage/edges.py`
 
-### `test_upsert_node`
+### Implement
 
-Verify:
-- inserting a node works
-- reinserting same ID updates instead of duplicating
+- [ ] `delete_edges_for_file(conn, file_id)`
 
-### `test_upsert_edge`
+### Exact behavior
 
-Verify:
-- inserting an edge works
-- reinserting same ID updates instead of duplicating
+- [ ] delete all edge rows where `evidence_file_id = ?`
 
-### `test_get_node_by_id`
+### Do not do
 
-Verify:
-- lookup returns the right node
+- [ ] do not delete edges for other files
+- [ ] do not combine node deletion inside this function
 
-### `test_get_node_by_qualified_name`
+### Done when
 
-Verify:
-- lookup works for a known repo and qualified name
+- [ ] all file-evidence-owned edges for one file can be removed cleanly
 
-### `test_list_child_nodes`
+***
 
-Verify:
-- module returns classes and top-level functions
-- class returns methods
+## Step 12 - Replace File Graph
 
-### `test_list_outgoing_and_incoming_edges`
+### File
 
-Verify:
-- directional queries return expected edges
+- [ ] `src/repo_context/storage/graph.py`
 
-### `test_replace_file_graph`
+### Implement
 
-Verify:
-- old file-owned nodes are removed
-- old file-owned edges are removed
-- new nodes and edges are inserted
-- unrelated files remain untouched
+- [ ] `replace_file_graph(conn, file_id, nodes, edges)`
 
-### `test_graph_stats`
+### Exact behavior
 
-Verify:
-- counts match inserted data
+- [ ] begin a transaction
+- [ ] delete edges for `file_id`
+- [ ] delete nodes for `file_id`
+- [ ] insert fresh nodes
+- [ ] insert fresh edges
+- [ ] commit on success
+- [ ] rollback on failure
+- [ ] re-raise the original failure after rollback
 
-### `test_placeholder_targets_do_not_break_queries`
+### Required ordering
 
-Verify:
-- unresolved targets in `to_id` do not crash graph queries
+- [ ] edge deletion must happen before node deletion
+- [ ] node insertion must happen before edge insertion
 
----
+### Do not do
 
-## Suggested fixture usage
+- [ ] do not try to diff old and new file graphs in v1
+- [ ] do not perform partial commits inside replacement
 
-Reuse your phase 3 fixtures.
+### Done when
 
-Good test shape:
-1. scan fixture repo
-2. extract AST nodes and edges
-3. persist them
-4. query them
-5. assert exact results
+- [ ] one file graph can be fully replaced without leaving stale file-owned graph state behind
 
-That gives you end-to-end confidence without yet involving LSP or MCP.
+***
 
----
+## Step 13 - Graph Read Query Layer
 
-## Acceptance checklist
+### File
 
-Phase 4 is done when all of this is true:
+- [ ] `src/repo_context/graph/queries.py`
 
-- Nodes can be inserted and updated without duplication.
-- Edges can be inserted and updated without duplication.
-- Nodes can be queried by ID.
-- Nodes can be queried by qualified name.
-- Child nodes can be listed by parent.
-- Outgoing edges can be listed by source node.
-- Incoming edges can be listed by target node.
-- File-owned graph data can be replaced cleanly.
-- Graph stats can be computed.
-- SQLite indexes exist.
-- CLI graph inspection commands work.
-- Tests pass.
-- No LSP enrichment exists yet.
-- No plan risk engine exists yet.
-- No MCP server exists yet.
+### Implement
 
----
+- [ ] `get_symbol(conn, node_id)`
+- [ ] `get_symbol_by_qualified_name(conn, repo_id, qualified_name, kind=None)`
+- [ ] `get_parent_symbol(conn, node)`
+- [ ] `get_child_symbols(conn, node_id)`
+- [ ] `get_outgoing_edges(conn, node_id, kind=None)`
+- [ ] `get_incoming_edges(conn, node_id, kind=None)`
+- [ ] `get_symbols_for_file(conn, file_id)`
+- [ ] `get_repo_graph_stats(conn, repo_id)`
 
-## Common mistakes to avoid
+### Exact behavior
 
-### Mistake 1: Treating storage like business logic
+#### `get_symbol`
+- [ ] delegate to node storage lookup by ID
 
-Storage should persist and retrieve data.
-It should not become the risk engine or context builder.
+#### `get_symbol_by_qualified_name`
+- [ ] delegate to node storage lookup by qualified name
 
-### Mistake 2: Forgetting cleanup
+#### `get_parent_symbol`
+- [ ] if node has no `parent_id`, return `None`
+- [ ] otherwise fetch the parent node by ID
 
-If file replacement leaves old nodes or edges around, the graph becomes untrustworthy fast.
+#### `get_child_symbols`
+- [ ] return child nodes using `parent_id`
 
-### Mistake 3: Hiding unresolved targets
+#### `get_outgoing_edges`
+- [ ] delegate to edge storage outgoing edge listing
 
-Placeholder targets are fine.
-Fake resolution is not.
+#### `get_incoming_edges`
+- [ ] delegate to edge storage incoming edge listing
 
-### Mistake 4: Overengineering a graph abstraction
+#### `get_symbols_for_file`
+- [ ] delegate to node storage file listing
 
-You do not need a giant repository pattern hierarchy here.
-Simple explicit functions are better.
+#### `get_repo_graph_stats`
+- [ ] return counts for:
+  - `repo_id`
+  - total node count
+  - total edge count
+  - module count
+  - class count
+  - callable count
 
-### Mistake 5: No indexes
+### Callable count rule
 
-SQLite is fine, but without indexes some common queries will get worse fast as the repo grows.
+- [ ] callable count must equal count of nodes with kind in `function`, `async_function`, `method`, `async_method`
 
-### Mistake 6: Mixing raw SQL everywhere
+### Do not do
 
-Keep query logic grouped in storage and graph query modules.
-Do not scatter SQL across CLI and parsing code.
+- [ ] do not add smart context assembly here
+- [ ] do not add traversal engines here
 
----
+### Done when
 
-## What phase 5 will depend on
+- [ ] later phases can reuse one small graph query API instead of writing raw SQL repeatedly
 
-The next phase will assume phase 4 already gives it:
+***
 
-- stable stored nodes
-- stable stored edges
-- direct lookup helpers
-- directional edge queries
-- child lookup
-- clean replacement behavior
+## Step 14 - Optional Filters Module
 
-Phase 5 will start assembling symbol context from this stored graph.
-If the graph storage layer is unreliable, context assembly will be unreliable too.
+### File
 
----
+- [ ] `src/repo_context/graph/filters.py`
 
-## Final guidance
+### Implement
 
-This phase is not glamorous.
+- [ ] add only tiny reusable helpers if needed by CLI or queries
+- [ ] leave this module minimal if not needed
 
-That is fine.
+### Do not do
 
-You are not trying to prove the system is intelligent here.
-You are trying to prove the graph is:
+- [ ] do not build a mini query language
 
-- durable
-- queryable
-- replaceable
-- clean
+### Done when
 
-That is the real job of phase 4.
+- [ ] no filtering logic is duplicated unnecessarily
 
-If you finish this phase and the graph feels boring but trustworthy, you did it right.
-```
+***
+
+## Step 15 - CLI Inspection Commands
+
+### Files to modify
+
+- [ ] existing CLI module from earlier phases
+
+### Implement
+
+Add these CLI commands.
+
+### Command 1
+- [ ] `repo-context graph-stats <repo-id>`
+
+Required behavior:
+- [ ] print counts of nodes and edges
+- [ ] print module, class, and callable counts
+
+### Command 2
+- [ ] `repo-context list-nodes <repo-id>`
+
+Required behavior:
+- [ ] print stored nodes for the repo
+- [ ] output enough fields to inspect identity and hierarchy
+
+### Command 3
+- [ ] `repo-context list-edges <repo-id>`
+
+Required behavior:
+- [ ] print stored edges for the repo
+- [ ] output enough fields to inspect edge direction and kind
+
+### Command 4
+- [ ] `repo-context show-node <node-id>`
+
+Required behavior:
+- [ ] print one node
+- [ ] print immediate parent summary if parent exists
+- [ ] print immediate child summary if children exist
+
+### Do not do
+
+- [ ] do not add MCP-like behavior
+- [ ] do not add complex formatting requirements
+- [ ] do not hide important graph fields from CLI output
+
+### Done when
+
+- [ ] graph state can be inspected from the command line without direct SQL
+
+***
+
+## Step 16 - Placeholder Target Handling
+
+### Files to verify
+
+- [ ] storage and query modules
+
+### Implement
+
+Ensure graph queries behave correctly when edges point to placeholder target IDs such as:
+- [ ] `external_or_unresolved:...`
+- [ ] `unresolved_base:...`
+
+### Exact behavior
+
+- [ ] storing such edges must succeed
+- [ ] listing such edges must succeed
+- [ ] incoming and outgoing edge queries must not crash when endpoint target is not a real node row
+
+### Do not do
+
+- [ ] do not create fake nodes for placeholder targets in this phase
+
+### Done when
+
+- [ ] unresolved targets remain explicit and harmless to graph queries
+
+***
+
+## Step 17 - Tests
+
+### Files to create or modify
+
+- [ ] phase 4 tests under `tests/`
+
+### Implement these tests
+
+- [ ] `test_upsert_node`
+- [ ] `test_upsert_edge`
+- [ ] `test_get_node_by_id`
+- [ ] `test_get_node_by_qualified_name`
+- [ ] `test_list_child_nodes`
+- [ ] `test_list_outgoing_and_incoming_edges`
+- [ ] `test_replace_file_graph`
+- [ ] `test_graph_stats`
+- [ ] `test_placeholder_targets_do_not_break_queries`
+- [ ] CLI inspection tests if CLI tests already exist in the project style
+
+### Exact test assertions
+
+#### `test_upsert_node`
+- [ ] inserting a node creates one row
+- [ ] upserting the same node ID updates the existing row
+- [ ] row count does not increase on same ID reinsert
+
+#### `test_upsert_edge`
+- [ ] inserting an edge creates one row
+- [ ] upserting the same edge ID updates the existing row
+- [ ] row count does not increase on same ID reinsert
+
+#### `test_get_node_by_id`
+- [ ] correct node is returned by ID
+- [ ] missing ID returns `None`
+
+#### `test_get_node_by_qualified_name`
+- [ ] correct node is returned for repo plus qualified name
+- [ ] optional kind filter works
+- [ ] missing name returns `None`
+
+#### `test_list_child_nodes`
+- [ ] module children are returned correctly
+- [ ] class children are returned correctly
+- [ ] result ordering is deterministic
+
+#### `test_list_outgoing_and_incoming_edges`
+- [ ] outgoing edge query returns expected edges
+- [ ] incoming edge query returns expected edges
+- [ ] optional edge kind filter works
+
+#### `test_replace_file_graph`
+- [ ] old file-owned nodes are deleted
+- [ ] old file-owned edges are deleted
+- [ ] new file nodes are inserted
+- [ ] new file edges are inserted
+- [ ] unrelated file data remains untouched
+
+#### `test_graph_stats`
+- [ ] node and edge counts are correct
+- [ ] module count is correct
+- [ ] class count is correct
+- [ ] callable count is correct
+
+#### `test_placeholder_targets_do_not_break_queries`
+- [ ] placeholder `to_id` values do not break edge listing
+- [ ] graph queries still return valid results
+
+### Do not do
+
+- [ ] do not rely only on smoke tests
+- [ ] do not leave file replacement untested
+
+### Done when
+
+- [ ] persistence, retrieval, cleanup, and graph stats are covered by tests
+
+***
+
+## Step 18 - End-to-End Fixture Validation
+
+### Files to use
+
+- [ ] reuse phase 3 fixture repos
+
+### Implement
+
+For at least one fixture repo:
+
+- [ ] scan files using phase 2
+- [ ] extract nodes and edges using phase 3
+- [ ] persist graph using phase 4
+- [ ] run graph queries using phase 4 helpers
+- [ ] assert exact expected results
+
+### Do not do
+
+- [ ] do not involve LSP
+- [ ] do not involve MCP
+
+### Done when
+
+- [ ] phase 2, phase 3, and phase 4 work together on a real fixture flow
+
+***
+
+## Step 19 - Final Verification
+
+Before marking phase 4 complete, verify all of the following:
+
+- [ ] nodes can be inserted without duplication
+- [ ] nodes can be updated without duplication
+- [ ] edges can be inserted without duplication
+- [ ] edges can be updated without duplication
+- [ ] nodes can be queried by ID
+- [ ] nodes can be queried by qualified name
+- [ ] child nodes can be listed by parent
+- [ ] outgoing edges can be listed by source node
+- [ ] incoming edges can be listed by target node
+- [ ] file-owned graph state can be replaced cleanly
+- [ ] graph stats can be computed
+- [ ] required SQLite indexes exist
+- [ ] CLI graph inspection commands work
+- [ ] tests pass
+- [ ] no LSP enrichment exists
+- [ ] no plan risk engine exists
+- [ ] no MCP server exists
+
+Do not mark phase 4 done until every box above is true.
+
+***
+
+## Required Execution Order
+
+Implement in this order and do not skip ahead:
+
+- [ ] Step 1 add or verify indexes
+- [ ] Step 2 node row mapping
+- [ ] Step 3 edge row mapping
+- [ ] Step 4 node upsert
+- [ ] Step 5 bulk node upsert
+- [ ] Step 6 node read helpers
+- [ ] Step 7 delete nodes for file
+- [ ] Step 8 edge upsert
+- [ ] Step 9 bulk edge upsert
+- [ ] Step 10 edge read helpers
+- [ ] Step 11 delete edges for file
+- [ ] Step 12 replace file graph
+- [ ] Step 13 graph read query layer
+- [ ] Step 14 optional filters module
+- [ ] Step 15 CLI inspection commands
+- [ ] Step 16 placeholder target handling
+- [ ] Step 17 tests
+- [ ] Step 18 end-to-end fixture validation
+- [ ] Step 19 final verification
+
+***
+
+## Phase 4 Done Definition
+
+Phase 4 is complete only when all of these are true:
+
+- [ ] phase 1, phase 2, and phase 3 contracts remain intact
+- [ ] graph persistence is deterministic
+- [ ] graph retrieval is deterministic
+- [ ] file-level graph replacement removes stale file-owned graph state
+- [ ] placeholder edge targets remain explicit and do not break queries
+- [ ] graph state can be inspected from CLI
+- [ ] tests pass
+- [ ] no out-of-scope features were added
+
