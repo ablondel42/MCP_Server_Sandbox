@@ -6,7 +6,7 @@
 
 **Core value proposition:** Safer AI-assisted planning through deterministic pre-change checking and human approval gates before implementation.
 
-**Current Status:** Phase 2 (Repository Scanner) complete. Phase 1 (Bootstrap) and Phase 2 (Repository Scanner) implemented.
+**Current Status:** Phase 3 (AST Extraction) complete. Phases 1-3 implemented.
 
 ---
 
@@ -17,8 +17,8 @@ The system follows a layered architecture:
 ```
 Local repo
   -> Repository Scanner (file inventory) [DONE]
-  -> AST Extraction (structural graph) [TODO]
-  -> SQLite Graph Storage [PARTIAL]
+  -> AST Extraction (structural graph) [DONE]
+  -> SQLite Graph Storage [DONE]
   -> Context Builder (symbol-centered views) [TODO]
   -> LSP Reference Enrichment [TODO]
   -> Risk Engine (deterministic analysis) [TODO]
@@ -33,8 +33,8 @@ Local repo
 | Component | Purpose | Phase | Status |
 |-----------|---------|-------|--------|
 | **Repository Scanner** | Discovers Python files, ignores junk directories, persists file inventory | 02 | ✅ Complete |
-| **AST Extraction** | Parses Python files, extracts modules/classes/callables, builds structural edges | 03 | ⏳ Pending |
-| **Graph Storage** | SQLite persistence for nodes and edges, upsert/cleanup/query operations | 04 | ⏳ Pending |
+| **AST Extraction** | Parses Python files, extracts modules/classes/callables, builds structural edges | 03 | ✅ Complete |
+| **Graph Storage** | SQLite persistence for nodes and edges, upsert/cleanup/query operations | 04 | ✅ Complete |
 | **Context Builder** | Assembles symbol-centered views with parent/children/edges/freshness/confidence | 05 | ⏳ Pending |
 | **LSP References** | Enriches graph with `references` edges via language server queries | 06 | ⏳ Pending |
 | **Risk Engine** | Deterministic risk analysis: facts, issues, scores, decisions | 07 | ⏳ Pending |
@@ -50,7 +50,7 @@ Local repo
 - **Database:** SQLite (local, zero-setup)
 - **Package Management:** `pyproject.toml`
 - **Models:** Dataclasses for canonical schema
-- **AST:** Python `ast` module (Phase 3+)
+- **AST:** Python `ast` module
 - **LSP:** Minimal client (Phase 6+)
 - **Filesystem Watching:** `watchdog` library (Phase 9+)
 - **MCP:** Model Context Protocol server (Phase 8+)
@@ -84,11 +84,23 @@ MCP_Server_Sandbox/
         migrations.py         # Schema setup (5 tables, 13 indexes)
         repos.py              # RepoRecord persistence
         files.py              # FileRecord persistence
+        nodes.py              # SymbolNode persistence
+        edges.py              # Edge persistence
       parsing/
         __init__.py
         scanner.py            # Repository scanning
         pathing.py            # Path normalization, module-path derivation
         hashing.py            # Content hashing (SHA-256)
+        ast_loader.py         # AST loading and parsing
+        naming.py             # Symbol ID and qualified name builders
+        ranges.py             # Zero-based range conversion
+        docstrings.py         # Docstring summary extraction
+        module_extractor.py   # Module node extraction
+        class_extractor.py    # Class node extraction
+        callable_extractor.py # Function/method extraction
+        import_extractor.py   # Import edge extraction
+        inheritance_extractor.py  # Inheritance edge extraction
+        pipeline.py           # Per-file extraction orchestration
       cli/
         __init__.py
         main.py               # CLI entry point
@@ -99,6 +111,13 @@ MCP_Server_Sandbox/
     test_models.py            # Model instantiation and JSON tests
     test_cli.py               # CLI command tests
     test_scanner.py           # Scanner tests (16 tests)
+    test_ast_extraction.py    # AST extraction tests (10 tests)
+    fixtures/                 # Test fixtures
+      simple_package/
+      inheritance_case/
+      async_case/
+      decorators_case/
+      nested_functions_case/
 ```
 
 ---
@@ -131,7 +150,7 @@ repo-context doctor
 # Health check at custom path
 repo-context doctor --db-path /path/to/custom.db
 
-# Scan a repository
+# Scan a repository (Phase 2)
 repo-context scan-repo /path/to/repo
 
 # Scan with custom database path
@@ -140,11 +159,20 @@ repo-context scan-repo /path/to/repo --db-path /path/to/db.db
 # Scan with JSON output
 repo-context scan-repo /path/to/repo --json
 
+# Extract AST from scanned repository (Phase 3)
+repo-context extract-ast /path/to/repo
+
+# Extract AST with custom database path
+repo-context extract-ast /path/to/repo --db-path /path/to/db.db
+
+# Extract AST with JSON output
+repo-context extract-ast /path/to/repo --json
+
 # Run all tests
 pytest
 
 # Run specific test file
-pytest tests/test_scanner.py
+pytest tests/test_ast_extraction.py
 
 # Run with verbose output
 pytest -v
@@ -166,7 +194,7 @@ pytest -v
 ### Model Design
 
 - **Canonical schema first:** All subsystems target the same models
-- **IDs over names:** Stable identifiers for graph entities (e.g., `file:{path}`, `repo:{name}`)
+- **IDs over names:** Stable identifiers for graph entities (e.g., `file:{path}`, `repo:{name}`, `sym:{repo}:{kind}:{qualified_name}`)
 - **Provenance matters:** Record `source` (e.g., `python-ast`, `lsp`, `derived`)
 - **Confidence fields:** Track trustworthiness of data
 - **Internal schema is truth:** Normalize LSP/AST data; do not use raw objects
@@ -194,6 +222,27 @@ All fields must be present:
 - `last_modified_at: str` - ISO 8601 UTC string
 - `last_indexed_at: str | None` - Set during scan
 
+### SymbolNode Contract
+
+Key fields:
+- `id: str` - Format: `sym:{repo_id}:{kind}:{qualified_name}`
+- `kind: str` - One of: `module`, `class`, `function`, `async_function`, `method`, `async_method`
+- `qualified_name: str` - Full logical path (e.g., `app.services.auth.AuthService.login`)
+- `parent_id: str | None` - Parent symbol ID
+- `range_json: str | None` - Full declaration range (zero-based)
+- `selection_range_json: str | None` - Name-focused range (zero-based)
+- `payload_json: str` - Type-specific metadata
+
+### Edge Contract
+
+Key fields:
+- `id: str` - Deterministic ID
+- `kind: str` - One of: `contains`, `imports`, `inherits`
+- `from_id: str` - Source node ID
+- `to_id: str` - Target node ID
+- `source: str` - `python-ast` for Phase 3
+- `confidence: float` - 1.0 for structural, 0.8 for imports, 0.75 for inheritance
+
 ### Security & Safety
 
 - **No secrets in code:** Use environment variables or config files
@@ -208,7 +257,7 @@ All fields must be present:
 - **Use temporary directories:** Never write to default DB path in tests
 - **Scenario-based tests:** Validate end-to-end behavior
 - **Fixture strategy:** Use small realistic repo fixtures
-- **Test edge cases:** Empty repos, invalid paths, ignored directories
+- **Test edge cases:** Empty repos, invalid paths, ignored directories, nested functions
 
 ---
 
@@ -218,8 +267,8 @@ The system must be built in this exact sequence to avoid rework:
 
 1. **Bootstrap** ✅ - Project setup, models, SQLite init, CLI shell
 2. **Repo Scanner** ✅ - File inventory, path normalization, hashing
-3. **AST Extraction** ⏳ - Symbol extraction, structural edges
-4. **Graph Storage** ⏳ - Persistence, upsert, cleanup, queries
+3. **AST Extraction** ✅ - Symbol extraction, structural edges
+4. **Graph Storage** ✅ - Persistence, upsert, cleanup, queries
 5. **Context Builder** ⏳ - Symbol-centered context assembly
 6. **LSP References** ⏳ - Reference enrichment, location mapping
 7. **Risk Engine** ⏳ - Facts, issues, scoring, decisions
@@ -228,8 +277,8 @@ The system must be built in this exact sequence to avoid rework:
 10. **Real Workflow** ⏳ - Plan->check->approve->implement enforcement
 
 **Build logic:**
-- Phases 1-2: Build file inventory (current state)
-- Phases 3-4: Build structural graph truth
+- Phases 1-2: Build file inventory
+- Phases 3-4: Build structural graph truth (current state)
 - Phases 5-7: Build reasoning inputs (context, references, risk)
 - Phase 8: Expose tools (MCP)
 - Phase 9: Keep state fresh (watch mode)
@@ -243,8 +292,8 @@ The system must be built in this exact sequence to avoid rework:
 
 1. **repos** - Repository metadata
 2. **files** - File inventory
-3. **nodes** - Symbol nodes (modules, classes, functions)
-4. **edges** - Relationships between nodes
+3. **nodes** - Symbol nodes (modules, classes, functions, methods)
+4. **edges** - Relationships between nodes (`contains`, `imports`, `inherits`)
 5. **index_runs** - Indexing operation tracking
 
 ### Indexes (13)
@@ -262,7 +311,8 @@ The system must be built in this exact sequence to avoid rework:
 |---------|-------------|---------|
 | `init-db` | Initialize SQLite database | `--db-path PATH` |
 | `doctor` | Health check (tables, indexes) | `--db-path PATH` |
-| `scan-repo` | Scan repository for Python files | `--db-path PATH`, `--json` |
+| `scan-repo` | Scan repository for Python files (Phase 2) | `--db-path PATH`, `--json` |
+| `extract-ast` | Extract AST and build structural graph (Phase 3) | `--db-path PATH`, `--json` |
 
 ---
 
@@ -275,6 +325,13 @@ The system must be built in this exact sequence to avoid rework:
 - **POSIX-style paths:** Always use forward slashes internally
 - **Module derivation:** Drop `.py`, drop trailing `__init__`, join with dots
 
+### AST Extraction Design
+
+- **Structural only:** No semantic analysis in Phase 3
+- **Nested functions ignored:** Only top-level and direct class methods
+- **Unresolved targets explicit:** `external_or_unresolved:{name}` for imports, `unresolved_base:{name}` for inheritance
+- **Zero-based ranges:** All line numbers converted from AST one-based to zero-based
+
 ### Serialization
 
 - **JSON helpers:** `to_json()` and `from_json()` in `models/common.py`
@@ -286,6 +343,18 @@ The system must be built in this exact sequence to avoid rework:
 - **SHA-256:** All content hashes use SHA-256
 - **Prefix format:** All hashes prefixed with `sha256:`
 - **Binary reading:** Files hashed as bytes, not text
+
+### Symbol ID Format
+
+- **Module:** `sym:{repo_id}:module:{module_path}`
+- **Class:** `sym:{repo_id}:class:{qualified_name}`
+- **Callable:** `sym:{repo_id}:{kind}:{qualified_name}`
+
+### Edge ID Format
+
+- **Contains:** `edge:{repo_id}:contains:{from_id}->{to_id}`
+- **Imports:** `edge:{repo_id}:imports:{from_id}->{to_id}:{lineno}`
+- **Inherits:** `edge:{repo_id}:inherits:{from_id}->unresolved_base:{base_name}`
 
 ---
 
@@ -312,6 +381,13 @@ The system must be built in this exact sequence to avoid rework:
 - **Non-deterministic ordering:** Always sort results by `file_path`
 - **Hardcoding ignore rules:** Use `AppConfig.ignored_dirs` and `AppConfig.supported_extensions`
 
+### AST Extraction
+
+- **Creating nested function nodes:** Only top-level and direct class methods
+- **One-based line numbers:** Always convert to zero-based
+- **Inventing semantic resolution:** Keep imports and bases as unresolved placeholders
+- **Inconsistent ID formats:** Use the exact ID format specified
+
 ---
 
 ## When Stuck
@@ -335,9 +411,9 @@ The system must be built in this exact sequence to avoid rework:
 - `build-plan-phases/00-quick-summary.md` - Phase overview
 - `build-plan-phases/01-bootstrap.md` - Foundation setup (✅ Complete)
 - `build-plan-phases/02-repo-scanner.md` - File inventory (✅ Complete)
-- `build-plan-phases/03-ast-extraction.md` - Structural graph (⏳ Next)
-- `build-plan-phases/04-graph-storage.md` - Persistence layer
-- `build-plan-phases/05-context-builder.md` - Context assembly
+- `build-plan-phases/03-ast-extraction.md` - Structural graph (✅ Complete)
+- `build-plan-phases/04-graph-storage.md` - Persistence layer (✅ Complete)
+- `build-plan-phases/05-context-builder.md` - Context assembly (⏳ Next)
 - `build-plan-phases/06-lsp-references.md` - Reference enrichment
 - `build-plan-phases/07-risk-engine.md` - Risk analysis
 - `build-plan-phases/08-mcp-server.md` - Tool exposure

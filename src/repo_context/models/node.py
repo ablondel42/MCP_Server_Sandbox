@@ -26,4 +26,6 @@ class SymbolNode:
     parent_id: Optional[str] = None
     visibility_hint: Optional[str] = None
     doc_summary: Optional[str] = None
+    scope: Optional[str] = None  # "module", "function", or "class"
+    lexical_parent_id: Optional[str] = None  # Immediate lexical parent symbol ID
     last_indexed_at: Optional[str] = None

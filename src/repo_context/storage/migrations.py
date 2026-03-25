@@ -1,13 +1,13 @@
-"""Database schema initialization."""
+"""Database schema initialization with nested scope support."""
 
 import sqlite3
 
 
 def initialize_database(conn: sqlite3.Connection) -> None:
     """Initialize the database schema.
-    
+
     Creates all tables and indexes required for the application.
-    
+
     Args:
         conn: SQLite connection.
     """
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS files (
     last_indexed_at TEXT
 );
 
--- Nodes table
+-- Nodes table (with nested scope support)
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
     repo_id TEXT NOT NULL,
@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     source TEXT NOT NULL,
     confidence REAL NOT NULL,
     payload_json TEXT NOT NULL,
+    scope TEXT,
+    lexical_parent_id TEXT,
     last_indexed_at TEXT
 );
 
@@ -100,6 +102,8 @@ CREATE INDEX IF NOT EXISTS idx_nodes_file_id ON nodes(file_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_qualified_name ON nodes(qualified_name);
 CREATE INDEX IF NOT EXISTS idx_nodes_parent_id ON nodes(parent_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
+CREATE INDEX IF NOT EXISTS idx_nodes_lexical_parent_id ON nodes(lexical_parent_id);
+CREATE INDEX IF NOT EXISTS idx_nodes_scope ON nodes(scope);
 
 -- Indexes for edges table
 CREATE INDEX IF NOT EXISTS idx_edges_repo_id ON edges(repo_id);

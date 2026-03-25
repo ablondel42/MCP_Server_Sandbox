@@ -1,11 +1,11 @@
-"""Node persistence helpers."""
+"""Node persistence helpers with nested scope support."""
 
 import sqlite3
 
 
 def upsert_node(conn: sqlite3.Connection, node: dict) -> None:
     """Insert or update a single node.
-    
+
     Args:
         conn: SQLite connection.
         node: Node dictionary with all required fields.
@@ -16,12 +16,12 @@ def upsert_node(conn: sqlite3.Connection, node: dict) -> None:
             id, repo_id, file_id, language, kind, name, qualified_name, uri,
             range_json, selection_range_json, parent_id, visibility_hint,
             doc_summary, content_hash, semantic_hash, source, confidence,
-            payload_json, last_indexed_at
+            payload_json, scope, lexical_parent_id, last_indexed_at
         ) VALUES (
             :id, :repo_id, :file_id, :language, :kind, :name, :qualified_name, :uri,
             :range_json, :selection_range_json, :parent_id, :visibility_hint,
             :doc_summary, :content_hash, :semantic_hash, :source, :confidence,
-            :payload_json, :last_indexed_at
+            :payload_json, :scope, :lexical_parent_id, :last_indexed_at
         )
         ON CONFLICT(id) DO UPDATE SET
             repo_id = excluded.repo_id,
@@ -41,6 +41,8 @@ def upsert_node(conn: sqlite3.Connection, node: dict) -> None:
             source = excluded.source,
             confidence = excluded.confidence,
             payload_json = excluded.payload_json,
+            scope = excluded.scope,
+            lexical_parent_id = excluded.lexical_parent_id,
             last_indexed_at = excluded.last_indexed_at
         """,
         node,
@@ -49,7 +51,7 @@ def upsert_node(conn: sqlite3.Connection, node: dict) -> None:
 
 def upsert_nodes(conn: sqlite3.Connection, nodes: list[dict]) -> None:
     """Insert or update multiple nodes.
-    
+
     Args:
         conn: SQLite connection.
         nodes: List of node dictionaries.
@@ -60,11 +62,11 @@ def upsert_nodes(conn: sqlite3.Connection, nodes: list[dict]) -> None:
 
 def list_nodes_for_file(conn: sqlite3.Connection, file_id: str) -> list[dict]:
     """List all nodes for a specific file.
-    
+
     Args:
         conn: SQLite connection.
         file_id: File ID to filter by.
-        
+
     Returns:
         List of node dictionaries.
     """
@@ -73,20 +75,20 @@ def list_nodes_for_file(conn: sqlite3.Connection, file_id: str) -> list[dict]:
         SELECT id, repo_id, file_id, language, kind, name, qualified_name, uri,
                range_json, selection_range_json, parent_id, visibility_hint,
                doc_summary, content_hash, semantic_hash, source, confidence,
-               payload_json, last_indexed_at
+               payload_json, scope, lexical_parent_id, last_indexed_at
         FROM nodes
         WHERE file_id = ?
         ORDER BY kind, qualified_name
         """,
         (file_id,),
     )
-    
+
     return [dict(row) for row in cursor.fetchall()]
 
 
 def delete_nodes_for_file(conn: sqlite3.Connection, file_id: str) -> None:
     """Delete all nodes for a specific file.
-    
+
     Args:
         conn: SQLite connection.
         file_id: File ID to delete nodes for.

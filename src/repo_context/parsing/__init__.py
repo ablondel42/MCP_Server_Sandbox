@@ -8,6 +8,8 @@ from repo_context.parsing.naming import (
     build_module_node_id,
     build_class_node_id,
     build_callable_node_id,
+    build_nested_qualified_name,
+    build_disambiguated_symbol_id,
 )
 from repo_context.parsing.ranges import (
     to_zero_based_line,
@@ -22,6 +24,7 @@ from repo_context.parsing.callable_extractor import extract_callable_nodes, extr
 from repo_context.parsing.import_extractor import extract_import_edges_and_payload
 from repo_context.parsing.inheritance_extractor import extract_inheritance_edges
 from repo_context.parsing.pipeline import extract_file_graph
+from repo_context.parsing.scope_tracker import ScopeTracker
 
 __all__ = [
     # AST loader
@@ -34,6 +37,8 @@ __all__ = [
     "build_module_node_id",
     "build_class_node_id",
     "build_callable_node_id",
+    "build_nested_qualified_name",
+    "build_disambiguated_symbol_id",
     # Ranges
     "to_zero_based_line",
     "make_position",
@@ -50,4 +55,6 @@ __all__ = [
     "extract_inheritance_edges",
     # Pipeline
     "extract_file_graph",
+    # Scope tracker
+    "ScopeTracker",
 ]
