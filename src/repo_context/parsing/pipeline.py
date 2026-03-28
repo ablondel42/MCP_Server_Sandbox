@@ -12,9 +12,8 @@ from repo_context.parsing.class_extractor import extract_class_nodes
 from repo_context.parsing.callable_extractor import extract_callable_nodes
 from repo_context.parsing.import_extractor import extract_import_edges_and_payload
 from repo_context.parsing.inheritance_extractor import extract_inheritance_edges
-from repo_context.parsing.naming import build_module_qualified_name
+from repo_context.parsing.naming import build_module_qualified_name, DuplicateTracker
 from repo_context.parsing.scope_tracker import ScopeTracker
-from repo_context.models.edge_constants import EDGE_KIND_SCOPE_PARENT
 
 
 def extract_file_graph(
@@ -43,11 +42,12 @@ def extract_file_graph(
     # Step 2: Parse AST
     tree = parse_file(file_text)
 
-    # Initialize scope tracker for nested extraction
+    # Initialize trackers for nested extraction
     scope_tracker = ScopeTracker()
+    duplicate_tracker = DuplicateTracker()
 
     # Step 3: Create module node
-    module_node = extract_module_node(repo_id, file_record, tree, file_text, scope_tracker)
+    module_node = extract_module_node(repo_id, file_record, tree, file_text, scope_tracker, duplicate_tracker)
     module_node_id = module_node["id"]
     module_path = file_record.module_path
 
@@ -61,10 +61,11 @@ def extract_file_graph(
     edges.extend(import_edges)
 
     # Step 5: Extract top-level class nodes with scope tracking
-    class_nodes = extract_class_nodes(
-        repo_id, file_record, module_node_id, module_path, tree, scope_tracker
+    class_nodes, class_contains_edges = extract_class_nodes(
+        repo_id, file_record, module_node_id, module_path, tree, scope_tracker, duplicate_tracker
     )
     nodes.extend(class_nodes)
+    edges.extend(class_contains_edges)
 
     # Step 6: Create module -> class contains edges and SCOPE_PARENT edges
     for class_node in class_nodes:
@@ -84,58 +85,9 @@ def extract_file_graph(
     inheritance_edges = extract_inheritance_edges(repo_id, file_record, class_nodes, tree)
     edges.extend(inheritance_edges)
 
-    # Step 8: Extract direct class methods with scope tracking
-    method_ids = []
-    for class_node in class_nodes:
-        class_name = class_node["name"]
-        class_qualified_name = class_node["qualified_name"]
-
-        # Find the AST node for this class
-        class_ast_node = None
-        for node in tree.body:
-            if _ast_ClassDef_check(node, class_name):
-                class_ast_node = node
-                break
-
-        if class_ast_node is None:
-            continue
-
-        # Push class onto scope stack for method extraction
-        scope_tracker.push_declaration(class_node["id"], class_name, "class")
-        
-        # Extract methods (direct children that are FunctionDef or AsyncFunctionDef)
-        method_nodes = _extract_class_methods(
-            repo_id, file_record, class_node["id"], class_qualified_name, class_ast_node, scope_tracker, module_path
-        )
-        nodes.extend(method_nodes)
-        method_ids.extend([m["id"] for m in method_nodes])
-
-        # Create class -> method contains edges and SCOPE_PARENT edges
-        for method_node in method_nodes:
-            contains_edge = _make_contains_edge(
-                repo_id, class_node["id"], method_node["id"], file_record, class_ast_node
-            )
-            edges.append(contains_edge)
-            
-            # Add SCOPE_PARENT edge for methods
-            if method_node.get("lexical_parent_id"):
-                scope_parent_edge = _make_scope_parent_edge(
-                    repo_id, method_node["id"], method_node["lexical_parent_id"], file_record
-                )
-                edges.append(scope_parent_edge)
-        
-        # Pop class from scope stack
-        scope_tracker.pop_declaration()
-
-    # Update class payloads with method_ids
-    for class_node in class_nodes:
-        payload = json.loads(class_node["payload_json"])
-        payload["method_ids"] = [mid for mid in method_ids if _method_belongs_to_class(mid, class_node["qualified_name"])]
-        class_node["payload_json"] = json.dumps(payload, sort_keys=True)
-
-    # Step 10: Extract top-level callable nodes (functions, async functions) with scope tracking
+    # Step 8: Extract top-level callable nodes (functions, async functions) with scope tracking
     top_level_callables = _extract_top_level_callables(
-        repo_id, file_record, module_node_id, module_path, tree, scope_tracker
+        repo_id, file_record, module_node_id, module_path, tree, scope_tracker, duplicate_tracker
     )
     nodes.extend(top_level_callables)
 
@@ -163,6 +115,10 @@ def extract_file_graph(
     module_node["payload_json"] = json.dumps(module_payload, sort_keys=True)
 
     # Build summary
+    method_count = sum(1 for n in nodes if n["kind"] in ("method", "async_method"))
+    local_callable_count = sum(1 for n in nodes if n["kind"] in ("local_function", "local_async_function"))
+    callable_count = len(top_level_callables) + method_count + local_callable_count
+    
     summary = {
         "file_id": file_record.id,
         "file_path": file_record.file_path,
@@ -170,8 +126,8 @@ def extract_file_graph(
         "edge_count": len(edges),
         "module_count": 1,
         "class_count": len(class_nodes),
-        "callable_count": len(top_level_callables) + len(method_ids),
-        "method_count": len(method_ids),
+        "callable_count": callable_count,
+        "method_count": method_count,
     }
 
     return nodes, edges, summary
@@ -189,6 +145,7 @@ def _extract_class_methods(
     class_qualified_name: str,
     class_ast_node: ast.ClassDef,
     scope_tracker: ScopeTracker,
+    duplicate_tracker: DuplicateTracker,
     module_path: str,
 ) -> list[dict]:
     """Extract method nodes from a class AST node.
@@ -200,6 +157,7 @@ def _extract_class_methods(
         class_qualified_name: Parent class qualified name.
         class_ast_node: AST ClassDef node.
         scope_tracker: Scope tracker for lexical nesting.
+        duplicate_tracker: Duplicate tracker for symbol ID disambiguation.
         module_path: Module path for qualified name building.
 
     Returns:
@@ -217,6 +175,7 @@ def _extract_class_methods(
         parent_qualified_name=class_qualified_name,
         nodes=methods,
         scope_tracker=scope_tracker,
+        duplicate_tracker=duplicate_tracker,
         module_path=module_path,
     )
 
@@ -228,6 +187,7 @@ def _extract_top_level_callables(
     module_path: str,
     tree: ast.Module,
     scope_tracker: ScopeTracker,
+    duplicate_tracker: DuplicateTracker,
 ) -> list[dict]:
     """Extract top-level function and async function nodes.
 
@@ -238,6 +198,7 @@ def _extract_top_level_callables(
         module_path: Module path.
         tree: AST module.
         scope_tracker: Scope tracker for lexical nesting.
+        duplicate_tracker: Duplicate tracker for symbol ID disambiguation.
 
     Returns:
         List of callable node dicts.
@@ -254,6 +215,7 @@ def _extract_top_level_callables(
         parent_qualified_name=module_path,
         nodes=callables,
         scope_tracker=scope_tracker,
+        duplicate_tracker=duplicate_tracker,
         module_path=module_path,
     )
 

@@ -12,13 +12,9 @@ from repo_context.storage import (
     initialize_database,
     upsert_repo,
     upsert_files,
-    upsert_nodes,
-    upsert_edges,
+    replace_file_graph,
     list_files_for_repo,
     get_repo_by_id,
-    list_nodes_for_repo,
-    list_edges_for_repo,
-    get_node_by_id,
 )
 from repo_context.graph import get_repo_graph_stats
 from repo_context.parsing.scanner import scan_repository
@@ -215,8 +211,7 @@ def cmd_extract_ast(args: argparse.Namespace) -> int:
             for file_record in file_records:
                 try:
                     nodes, edges, summary = extract_file_graph(repo_id, file_record, repo_path)
-                    upsert_nodes(conn, nodes)
-                    upsert_edges(conn, edges)
+                    replace_file_graph(conn, file_record.id, nodes, edges)
                     total_nodes += len(nodes)
                     total_edges += len(edges)
                 except Exception as exc:

@@ -6,10 +6,9 @@ from typing import Optional
 
 from repo_context.models.file import FileRecord
 from repo_context.parsing.naming import (
-    build_callable_node_id,
     build_callable_qualified_name,
     build_nested_qualified_name,
-    build_disambiguated_symbol_id,
+    DuplicateTracker,
 )
 from repo_context.parsing.ranges import make_range, make_name_selection_range
 from repo_context.parsing.docstrings import get_doc_summary
@@ -23,6 +22,7 @@ def extract_callable_nodes(
     parent_qualified_name: str,
     nodes: list[ast.AST],
     scope_tracker: ScopeTracker,
+    duplicate_tracker: DuplicateTracker,
     module_path: str,
 ) -> list[dict]:
     """Extract callable nodes from function/method definitions with nested scope support.
@@ -34,6 +34,7 @@ def extract_callable_nodes(
         parent_qualified_name: Parent qualified name for building callable qualified name.
         nodes: List of AST nodes to process (FunctionDef or AsyncFunctionDef).
         scope_tracker: Scope tracker for lexical nesting.
+        duplicate_tracker: Duplicate tracker for symbol ID disambiguation.
         module_path: Module path for qualified name building.
 
     Returns:
@@ -51,7 +52,7 @@ def extract_callable_nodes(
         # Determine scope and kind based on current tracker state
         current_scope = scope_tracker.get_current_scope()
         lexical_parent_id = scope_tracker.get_lexical_parent_id()
-        
+
         # Classify kind based on scope
         if current_scope == "module":
             # Module-level: function or async_function
@@ -70,15 +71,8 @@ def extract_callable_nodes(
             lexical_chain = scope_tracker.get_lexical_chain()
             qualified_name = build_nested_qualified_name(module_path, lexical_chain, callable_name)
 
-        # Check for duplicate same-scope declarations
-        lineno = getattr(node, "lineno", None)
-        col = getattr(node, "col_offset", None)
-
-        # Build symbol ID (with disambiguation if needed)
-        if lineno is not None and col is not None:
-            node_id = build_disambiguated_symbol_id(repo_id, kind, qualified_name, lineno, col)
-        else:
-            node_id = build_callable_node_id(repo_id, kind, qualified_name)
+        # Build symbol ID using duplicate tracker
+        node_id = duplicate_tracker.get_symbol_id(repo_id, kind, qualified_name)
 
         # Extract decorators
         decorators = []
@@ -141,7 +135,7 @@ def extract_callable_nodes(
 
         # Recursively extract nested declarations from function body
         nested_nodes = _extract_nested_declarations(
-            repo_id, file_record, node_id, qualified_name, node, scope_tracker, module_path
+            repo_id, file_record, node_id, qualified_name, node, scope_tracker, duplicate_tracker, module_path
         )
         extracted.extend(nested_nodes)
 
@@ -155,6 +149,7 @@ def _extract_nested_declarations(
     parent_qualified_name: str,
     func_node: ast.AST,
     scope_tracker: ScopeTracker,
+    duplicate_tracker: DuplicateTracker,
     module_path: str,
 ) -> list[dict]:
     """Extract nested declarations from a function body.
@@ -166,6 +161,7 @@ def _extract_nested_declarations(
         parent_qualified_name: Parent function qualified name.
         func_node: AST FunctionDef or AsyncFunctionDef node.
         scope_tracker: Scope tracker for lexical nesting.
+        duplicate_tracker: Duplicate tracker for symbol ID disambiguation.
         module_path: Module path.
         
     Returns:
@@ -173,58 +169,57 @@ def _extract_nested_declarations(
     """
     # Import here to avoid circular import
     from repo_context.parsing.class_extractor import extract_class_nodes
-    
+
     nested = []
-    
-    # Push function onto scope stack
-    func_name = func_node.name
+
+    # Determine kind for scope tracker
     is_async = isinstance(func_node, ast.AsyncFunctionDef)
     current_scope = scope_tracker.get_current_scope()
-    
-    # Determine kind for scope tracker
+
     if current_scope == "module":
         kind = "async_function" if is_async else "function"
     elif current_scope == "class":
         kind = "async_method" if is_async else "method"
     else:
         kind = "local_async_function" if is_async else "local_function"
-    
-    # Build function's qualified name for scope tracker
-    if scope_tracker.is_empty():
-        func_qualified_name = build_callable_qualified_name(parent_qualified_name, func_name)
-    else:
-        lexical_chain = scope_tracker.get_lexical_chain()
-        func_qualified_name = build_nested_qualified_name(module_path, lexical_chain, func_name)
-    
-    scope_tracker.push_declaration(parent_id, func_name, "function")
-    
-    # Extract nested declarations from function body
-    for stmt in func_node.body:
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # Extract nested function
-            nested.extend(extract_callable_nodes(
-                repo_id=repo_id,
-                file_record=file_record,
-                parent_id=parent_id,
-                parent_qualified_name=func_qualified_name,
-                nodes=[stmt],
-                scope_tracker=scope_tracker,
-                module_path=module_path,
-            ))
-        elif isinstance(stmt, ast.ClassDef):
-            # Extract nested class
-            nested.extend(extract_class_nodes(
-                repo_id=repo_id,
-                file_record=file_record,
-                module_node_id=parent_id,
-                module_path=func_qualified_name,
-                tree=ast.Module(body=[stmt], type_ignores=[]),
-                scope_tracker=scope_tracker,
-            ))
-    
-    # Pop function from scope stack
-    scope_tracker.pop_declaration()
-    
+
+    # Use context manager to ensure stack stays balanced
+    with scope_tracker.scope_context(parent_id, func_node.name, "function"):
+        # Build qualified name for this function (using parent's qualified name, not scope tracker)
+        if parent_qualified_name:
+            func_qualified_name = f"{parent_qualified_name}.{func_node.name}"
+        else:
+            func_qualified_name = f"{module_path}.{func_node.name}"
+        
+        # Extract nested declarations from function body
+        for stmt in func_node.body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # Extract nested function
+                nested.extend(extract_callable_nodes(
+                    repo_id=repo_id,
+                    file_record=file_record,
+                    parent_id=parent_id,
+                    parent_qualified_name=func_qualified_name,
+                    nodes=[stmt],
+                    scope_tracker=scope_tracker,
+                    duplicate_tracker=duplicate_tracker,
+                    module_path=module_path,
+                ))
+            elif isinstance(stmt, ast.ClassDef):
+                # Extract nested class
+                nested_class_nodes, _ = extract_class_nodes(
+                    repo_id=repo_id,
+                    file_record=file_record,
+                    module_node_id=parent_id,
+                    module_path=module_path,
+                    tree=ast.Module(body=[stmt], type_ignores=[]),
+                    scope_tracker=scope_tracker,
+                    duplicate_tracker=duplicate_tracker,
+                    parent_id=parent_id,
+                    parent_qualified_name=func_qualified_name,
+                )
+                nested.extend(nested_class_nodes)
+
     return nested
 
 

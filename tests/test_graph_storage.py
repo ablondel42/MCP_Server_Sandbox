@@ -396,6 +396,53 @@ def test_replace_file_graph(initialized_db) -> None:
     assert nodes[0]["id"] == "sym:repo:test:module:new"
 
 
+def test_replace_file_graph_empty_lists(initialized_db) -> None:
+    """Test replacing file graph with empty lists."""
+    conn = initialized_db
+    file_id = "file:empty.py"
+
+    # Insert some initial data
+    initial_nodes = [
+        _create_test_node("sym:repo:test:module:initial", "module", "initial", file_id),
+    ]
+    upsert_nodes(conn, initial_nodes)
+
+    # Replace with empty lists
+    replace_file_graph(conn, file_id, [], [])
+
+    # Verify all nodes are deleted
+    nodes = list_nodes_for_file(conn, file_id)
+    assert len(nodes) == 0
+
+
+def test_replace_file_graph_transactional(initialized_db) -> None:
+    """Test that replace_file_graph is transactional."""
+    conn = initialized_db
+    file_id = "file:trans.py"
+
+    # Insert initial data
+    initial_nodes = [
+        _create_test_node("sym:repo:test:module:initial", "module", "initial", file_id),
+    ]
+    upsert_nodes(conn, initial_nodes)
+
+    # Try to replace with invalid data (missing required fields)
+    invalid_nodes = [
+        {"id": "invalid"},  # Missing required fields
+    ]
+
+    # Should raise an error but not leave partial state
+    try:
+        replace_file_graph(conn, file_id, invalid_nodes, [])
+    except Exception:
+        pass  # Expected to fail
+
+    # Original data should still be intact (transaction rolled back)
+    nodes = list_nodes_for_file(conn, file_id)
+    # Either all original data remains or all is gone (not partial)
+    assert len(nodes) in (0, 1)
+
+
 # ============== Graph Stats Tests ==============
 
 

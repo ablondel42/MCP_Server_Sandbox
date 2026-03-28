@@ -130,15 +130,18 @@ def test_edge() -> None:
 
 def test_symbol_context() -> None:
     """Test SymbolContext dataclass with proper defaults."""
-    ctx = SymbolContext(focus_symbol_id="sym:repo:class:app.Service")
-    assert ctx.focus_symbol_id == "sym:repo:class:app.Service"
-    assert ctx.parent_symbol_id is None
-    assert ctx.child_symbol_ids == []
-    assert ctx.outgoing_edge_ids == []
-    assert ctx.incoming_edge_ids == []
-    assert ctx.reference_count == 0
-    assert ctx.freshness_status == "unknown"
-    assert ctx.confidence_score == 0.0
+    ctx = SymbolContext(focus_symbol={"id": "sym:repo:class:app.Service"})
+    assert ctx.focus_symbol["id"] == "sym:repo:class:app.Service"
+    assert ctx.structural_parent is None
+    assert ctx.structural_children == []
+    assert ctx.lexical_parent is None
+    assert ctx.lexical_children == []
+    assert ctx.incoming_edges == []
+    assert ctx.outgoing_edges == []
+    assert ctx.file_siblings == []
+    assert ctx.structural_summary == {}
+    assert ctx.freshness == {}
+    assert ctx.confidence == {}
 
 
 def test_plan_assessment() -> None:
@@ -156,15 +159,15 @@ def test_plan_assessment() -> None:
 
 def test_no_mutable_defaults() -> None:
     """Test that dataclasses do not have mutable defaults."""
-    ctx1 = SymbolContext(focus_symbol_id="sym1")
-    ctx2 = SymbolContext(focus_symbol_id="sym2")
+    ctx1 = SymbolContext(focus_symbol={"id": "sym1"})
+    ctx2 = SymbolContext(focus_symbol={"id": "sym2"})
 
     # Modify one instance
-    ctx1.child_symbol_ids.append("child1")
+    ctx1.structural_children.append({"id": "child1"})
 
     # Other instance should not be affected
-    assert ctx2.child_symbol_ids == []
-    assert ctx1.child_symbol_ids == ["child1"]
+    assert ctx2.structural_children == []
+    assert ctx1.structural_children == [{"id": "child1"}]
 
     assessment1 = PlanAssessment(plan_summary="Plan 1")
     assessment2 = PlanAssessment(plan_summary="Plan 2")

@@ -6,10 +6,9 @@ from typing import Optional
 
 from repo_context.models.file import FileRecord
 from repo_context.parsing.naming import (
-    build_class_node_id,
     build_class_qualified_name,
     build_nested_qualified_name,
-    build_disambiguated_symbol_id,
+    DuplicateTracker,
 )
 from repo_context.parsing.ranges import make_range, make_name_selection_range
 from repo_context.parsing.docstrings import get_doc_summary
@@ -23,8 +22,10 @@ def extract_class_nodes(
     module_path: str,
     tree: ast.Module,
     scope_tracker: ScopeTracker,
+    duplicate_tracker: DuplicateTracker,
     parent_id: Optional[str] = None,
-) -> list[dict]:
+    parent_qualified_name: Optional[str] = None,
+) -> tuple[list[dict], list[dict]]:
     """Extract class nodes from class definitions.
 
     Args:
@@ -34,12 +35,15 @@ def extract_class_nodes(
         module_path: Module path for qualified name building.
         tree: Parsed AST module.
         scope_tracker: Scope tracker for lexical nesting.
+        duplicate_tracker: Duplicate tracker for symbol ID disambiguation.
         parent_id: Optional parent ID (for nested classes).
+        parent_qualified_name: Optional parent qualified name (for classes nested in functions).
 
     Returns:
-        List of class node dictionaries ready for persistence.
+        Tuple of (class nodes list, contains edges list).
     """
     nodes = []
+    contains_edges = []
 
     # Only process top-level classes in tree.body
     for node in tree.body:
@@ -47,28 +51,25 @@ def extract_class_nodes(
             continue
 
         class_name = node.name
-        
+
         # Determine scope based on current tracker state
         current_scope = scope_tracker.get_current_scope()
         lexical_parent_id = scope_tracker.get_lexical_parent_id()
-        
-        # Build qualified name using lexical chain for nested classes
-        if scope_tracker.is_empty():
+
+        # Build qualified name
+        if parent_qualified_name is not None:
+            # Class is nested inside a function - use parent's qualified name
+            qualified_name = f"{parent_qualified_name}.{class_name}"
+        elif scope_tracker.is_empty():
+            # Module-level class
             qualified_name = build_class_qualified_name(module_path, class_name)
         else:
+            # Class nested in another scope
             lexical_chain = scope_tracker.get_lexical_chain()
             qualified_name = build_nested_qualified_name(module_path, lexical_chain, class_name)
-        
-        # Check for duplicate same-scope declarations
-        lineno = getattr(node, "lineno", None)
-        col = getattr(node, "col_offset", None)
-        
-        # Build symbol ID (with disambiguation if needed)
-        base_id = build_class_node_id(repo_id, qualified_name)
-        if lineno is not None and col is not None:
-            node_id = build_disambiguated_symbol_id(repo_id, "class", qualified_name, lineno, col)
-        else:
-            node_id = base_id
+
+        # Build symbol ID using duplicate tracker
+        node_id = duplicate_tracker.get_symbol_id(repo_id, "class", qualified_name)
 
         # Extract base class names using ast.unparse
         base_names = []
@@ -92,7 +93,7 @@ def extract_class_nodes(
         else:
             visibility_hint = "public"
 
-        nodes.append({
+        class_node_dict = {
             "id": node_id,
             "repo_id": repo_id,
             "file_id": file_record.id,
@@ -118,15 +119,26 @@ def extract_class_nodes(
                 "method_ids": []
             }, sort_keys=True),
             "last_indexed_at": file_record.last_indexed_at,
-        })
+        }
 
-        # Recursively extract methods from class body
-        method_nodes = _extract_methods_from_class(
-            repo_id, file_record, node_id, qualified_name, node, scope_tracker, module_path
+        nodes.append(class_node_dict)
+
+        # Extract methods from class body and add to nodes
+        method_nodes, method_contains_edges = _extract_methods_from_class(
+            repo_id, file_record, node_id, qualified_name, node, scope_tracker, duplicate_tracker, module_path
         )
         nodes.extend(method_nodes)
+        contains_edges.extend(method_contains_edges)
 
-    return nodes
+        # Update class payload with method IDs
+        method_ids = [m["id"] for m in method_nodes]
+        class_node_dict["payload_json"] = json.dumps({
+            "base_names": base_names,
+            "decorators": decorators,
+            "method_ids": method_ids
+        }, sort_keys=True)
+
+    return nodes, contains_edges
 
 
 def _extract_methods_from_class(
@@ -136,10 +148,11 @@ def _extract_methods_from_class(
     class_qualified_name: str,
     class_node: ast.ClassDef,
     scope_tracker: ScopeTracker,
+    duplicate_tracker: DuplicateTracker,
     module_path: str,
-) -> list[dict]:
+) -> tuple[list[dict], list[dict]]:
     """Extract methods from a class body.
-    
+
     Args:
         repo_id: Repository ID.
         file_record: File record.
@@ -147,36 +160,53 @@ def _extract_methods_from_class(
         class_qualified_name: Class qualified name.
         class_node: AST ClassDef node.
         scope_tracker: Scope tracker.
+        duplicate_tracker: Duplicate tracker for symbol ID disambiguation.
         module_path: Module path.
-        
+
     Returns:
-        List of method node dicts.
+        Tuple of (method nodes list, contains edges list).
     """
     # Import here to avoid circular import
     from repo_context.parsing.callable_extractor import extract_callable_nodes
-    
+
     methods = []
-    
-    # Push class onto scope stack
-    scope_tracker.push_declaration(class_node_id, class_node.name, "class")
-    
-    # Extract methods
-    for stmt in class_node.body:
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            methods.extend(extract_callable_nodes(
-                repo_id=repo_id,
-                file_record=file_record,
-                parent_id=class_node_id,
-                parent_qualified_name=class_qualified_name,
-                nodes=[stmt],
-                scope_tracker=scope_tracker,
-                module_path=module_path,
-            ))
-    
-    # Pop class from scope stack
-    scope_tracker.pop_declaration()
-    
-    return methods
+    contains_edges = []
+
+    # Use context manager to ensure stack stays balanced
+    with scope_tracker.scope_context(class_node_id, class_node.name, "class"):
+        # Extract methods
+        for stmt in class_node.body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                method_nodes = extract_callable_nodes(
+                    repo_id=repo_id,
+                    file_record=file_record,
+                    parent_id=class_node_id,
+                    parent_qualified_name=class_qualified_name,
+                    nodes=[stmt],
+                    scope_tracker=scope_tracker,
+                    duplicate_tracker=duplicate_tracker,
+                    module_path=module_path,
+                )
+                methods.extend(method_nodes)
+                
+                # Create contains edge for each method
+                for method_node in method_nodes:
+                    contains_edges.append({
+                        "id": f"edge:{repo_id}:contains:{class_node_id}->{method_node['id']}",
+                        "repo_id": repo_id,
+                        "kind": "contains",
+                        "from_id": class_node_id,
+                        "to_id": method_node["id"],
+                        "source": "python-ast",
+                        "confidence": 1.0,
+                        "evidence_file_id": file_record.id,
+                        "evidence_uri": file_record.uri,
+                        "evidence_range_json": None,
+                        "payload_json": "{}",
+                        "last_indexed_at": file_record.last_indexed_at,
+                    })
+
+    return methods, contains_edges
 
 
 def _compute_class_semantic_hash(qualified_name: str, base_names: list[str], decorators: list[str]) -> str:

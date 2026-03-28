@@ -1,16 +1,33 @@
 """Scope tracker for lexical scope during AST traversal."""
 
-from dataclasses import dataclass, field
 from typing import Optional
 
 
-@dataclass
-class DeclarationInfo:
-    """Information about a declaration on the scope stack."""
-
-    symbol_id: str
-    name: str
-    scope: str  # "module", "function", or "class"
+class ScopeContext:
+    """Context manager for scope tracking.
+    
+    Ensures the scope stack remains balanced even if an exception occurs
+    during extraction.
+    
+    Usage:
+        with scope_tracker.scope_context(symbol_id, name, scope):
+            # extraction logic
+            pass
+    """
+    
+    def __init__(self, tracker: 'ScopeTracker', symbol_id: str, name: str, scope: str):
+        self.tracker = tracker
+        self.symbol_id = symbol_id
+        self.name = name
+        self.scope = scope
+    
+    def __enter__(self) -> 'ScopeTracker':
+        self.tracker.push_declaration(self.symbol_id, self.name, self.scope)
+        return self.tracker
+    
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        self.tracker.pop_declaration()
+        return False  # Don't suppress exceptions
 
 
 class ScopeTracker:
@@ -24,7 +41,7 @@ class ScopeTracker:
 
     def __init__(self) -> None:
         """Initialize the scope tracker with an empty declaration stack."""
-        self._stack: list[DeclarationInfo] = []
+        self._stack: list[dict] = []
 
     def push_declaration(self, symbol_id: str, name: str, scope: str) -> None:
         """Push a declaration onto the scope stack.
@@ -34,11 +51,11 @@ class ScopeTracker:
             name: The declaration's simple name.
             scope: The scope kind ("module", "function", or "class").
         """
-        self._stack.append(DeclarationInfo(
-            symbol_id=symbol_id,
-            name=name,
-            scope=scope,
-        ))
+        self._stack.append({
+            "symbol_id": symbol_id,
+            "name": name,
+            "scope": scope,
+        })
 
     def pop_declaration(self) -> None:
         """Pop the most recent declaration from the scope stack."""
@@ -54,7 +71,7 @@ class ScopeTracker:
         """
         if not self._stack:
             return "module"
-        return self._stack[-1].scope
+        return self._stack[-1]["scope"]
 
     def get_lexical_parent_id(self) -> Optional[str]:
         """Get the immediate lexical parent symbol ID.
@@ -62,9 +79,9 @@ class ScopeTracker:
         Returns:
             The parent symbol ID, or None if at module level.
         """
-        if len(self._stack) < 1:
+        if not self._stack:
             return None
-        return self._stack[-1].symbol_id
+        return self._stack[-1]["symbol_id"]
 
     def get_lexical_chain(self) -> list[str]:
         """Get the full lexical declaration chain.
@@ -72,7 +89,7 @@ class ScopeTracker:
         Returns:
             List of declaration names from outermost to innermost.
         """
-        return [decl.name for decl in self._stack]
+        return [decl["name"] for decl in self._stack]
 
     def get_lexical_chain_ids(self) -> list[str]:
         """Get the full lexical declaration chain of symbol IDs.
@@ -80,7 +97,7 @@ class ScopeTracker:
         Returns:
             List of symbol IDs from outermost to innermost.
         """
-        return [decl.symbol_id for decl in self._stack]
+        return [decl["symbol_id"] for decl in self._stack]
 
     def is_empty(self) -> bool:
         """Check if the scope stack is empty.
@@ -97,3 +114,16 @@ class ScopeTracker:
             Number of declarations on the stack.
         """
         return len(self._stack)
+    
+    def scope_context(self, symbol_id: str, name: str, scope: str) -> ScopeContext:
+        """Create a context manager for scope tracking.
+        
+        Args:
+            symbol_id: The symbol's stable ID.
+            name: The declaration's simple name.
+            scope: The scope kind ("module", "function", or "class").
+            
+        Returns:
+            ScopeContext instance for use with 'with' statement.
+        """
+        return ScopeContext(self, symbol_id, name, scope)

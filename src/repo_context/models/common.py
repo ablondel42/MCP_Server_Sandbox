@@ -7,7 +7,12 @@ from typing import Any
 
 @dataclass(frozen=True)
 class Position:
-    """A position in a file (zero-based)."""
+    """A position in a file (zero-based).
+    
+    Attributes:
+        line: Zero-based line number.
+        character: Zero-based character offset within the line.
+    """
 
     # Note: line and character are zero-based.
     line: int
@@ -16,7 +21,12 @@ class Position:
 
 @dataclass(frozen=True)
 class Range:
-    """A range in a file."""
+    """A range in a file.
+    
+    Attributes:
+        start: Starting position (inclusive).
+        end: Ending position (exclusive).
+    """
 
     start: Position
     end: Position

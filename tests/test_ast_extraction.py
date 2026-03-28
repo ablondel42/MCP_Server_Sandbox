@@ -18,6 +18,7 @@ from repo_context.parsing.pipeline import extract_file_graph
 from repo_context.parsing.ranges import make_range, make_name_selection_range, to_zero_based_line
 from repo_context.parsing.docstrings import get_doc_summary
 from repo_context.parsing.scope_tracker import ScopeTracker
+from repo_context.parsing.naming import DuplicateTracker
 from repo_context.storage import (
     get_connection,
     close_connection,
@@ -108,11 +109,12 @@ def test_class_extraction(simple_package_fixture: Path) -> None:
     file_text = load_file_text(file_path)
     tree = parse_file(file_text)
     module_node_id = "sym:repo:test:module:services"
-    
-    # Initialize scope tracker for module-level extraction
-    scope_tracker = ScopeTracker()
 
-    class_nodes = extract_class_nodes("repo:test", file_record, module_node_id, "services", tree, scope_tracker)
+    # Initialize trackers for module-level extraction
+    scope_tracker = ScopeTracker()
+    duplicate_tracker = DuplicateTracker()
+
+    class_nodes, _ = extract_class_nodes("repo:test", file_record, module_node_id, "services", tree, scope_tracker, duplicate_tracker)
 
     # Should find BaseService and AuthService (class nodes only, not methods)
     class_only_nodes = [n for n in class_nodes if n["kind"] == "class"]
@@ -143,12 +145,13 @@ def test_callable_extraction_top_level(simple_package_fixture: Path) -> None:
     
     # Initialize scope tracker for module-level extraction
     scope_tracker = ScopeTracker()
+    duplicate_tracker = DuplicateTracker()
 
     # Get top-level functions only
     top_level_funcs = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
     callables = extract_callable_nodes(
-        "repo:test", file_record, "sym:repo:test:module:services", "services", top_level_funcs, scope_tracker, "services"
+        "repo:test", file_record, "sym:repo:test:module:services", "services", top_level_funcs, scope_tracker, duplicate_tracker, "services"
     )
 
     # Should find create_service (function) and fetch_data (async_function)
@@ -178,13 +181,14 @@ def test_callable_extraction_methods(simple_package_fixture: Path) -> None:
     
     # Initialize scope tracker and push class for method extraction
     scope_tracker = ScopeTracker()
+    duplicate_tracker = DuplicateTracker()
     scope_tracker.push_declaration("sym:repo:test:class:services.AuthService", "AuthService", "class")
 
     # Extract methods
     methods = [n for n in auth_class.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
     callables = extract_callable_nodes(
-        "repo:test", file_record, "sym:repo:test:class:services.AuthService", "services.AuthService", methods, scope_tracker, "services"
+        "repo:test", file_record, "sym:repo:test:class:services.AuthService", "services.AuthService", methods, scope_tracker, duplicate_tracker, "services"
     )
 
     # Should find login and logout methods
@@ -247,10 +251,11 @@ def test_inherits_edges(inheritance_fixture: Path) -> None:
 
     file_text = load_file_text(file_path)
     tree = parse_file(file_text)
-    
+
     # Extract class nodes first with scope tracker
     scope_tracker = ScopeTracker()
-    class_nodes = extract_class_nodes("repo:test", file_record, "sym:repo:test:module:models", "models", tree, scope_tracker)
+    duplicate_tracker = DuplicateTracker()
+    class_nodes, _ = extract_class_nodes("repo:test", file_record, "sym:repo:test:module:models", "models", tree, scope_tracker, duplicate_tracker)
 
     # Extract inheritance edges
     edges = extract_inheritance_edges("repo:test", file_record, class_nodes, tree)
@@ -280,7 +285,8 @@ def test_doc_summary_extraction(simple_package_fixture: Path) -> None:
 
     # Class docstring with scope tracker
     scope_tracker = ScopeTracker()
-    class_nodes = extract_class_nodes("repo:test", file_record, "sym:repo:test:module:services", "services", tree, scope_tracker)
+    duplicate_tracker = DuplicateTracker()
+    class_nodes, _ = extract_class_nodes("repo:test", file_record, "sym:repo:test:module:services", "services", tree, scope_tracker, duplicate_tracker)
     base_service = next(c for c in class_nodes if c["name"] == "BaseService")
     assert base_service["doc_summary"] is not None
     assert "Base service" in base_service["doc_summary"]
@@ -652,7 +658,7 @@ def test_scope_values_are_valid(nested_scope_fixture: Path) -> None:
 
 
 def test_disambiguated_id_format(nested_scope_fixture: Path) -> None:
-    """Test that disambiguated IDs follow the expected format."""
+    """Test that duplicate IDs follow the expected :dup{N} format."""
     file_path = nested_scope_fixture / "duplicate_names.py"
     file_record = _create_file_record("repo:test", "duplicate_names.py", "duplicate_names")
 
@@ -662,10 +668,12 @@ def test_disambiguated_id_format(nested_scope_fixture: Path) -> None:
     # Find duplicate 'inner' functions
     inner_nodes = [n for n in nodes if n["name"] == "inner"]
 
-    # IDs should contain line:col disambiguation
-    for node in inner_nodes:
-        assert ":line" in node["id"], f"ID should contain line disambiguation: {node['id']}"
-        assert ":col" in node["id"], f"ID should contain col disambiguation: {node['id']}"
+    # First duplicate should have clean ID, subsequent ones should have :dup{N} suffix
+    assert len(inner_nodes) == 2
+    # First one has clean ID
+    assert inner_nodes[0]["id"] == "sym:repo:test:local_function:duplicate_names.outer_with_duplicates.inner"
+    # Second one has :dup1 suffix
+    assert inner_nodes[1]["id"] == "sym:repo:test:local_function:duplicate_names.outer_with_duplicates.inner:dup1"
 
 
 def test_class_nested_in_function_has_correct_parent(nested_scope_fixture: Path) -> None:

@@ -9,7 +9,7 @@ from repo_context.parsing.naming import (
     build_class_node_id,
     build_callable_node_id,
     build_nested_qualified_name,
-    build_disambiguated_symbol_id,
+    DuplicateTracker,
 )
 from repo_context.parsing.ranges import (
     to_zero_based_line,
@@ -38,7 +38,7 @@ __all__ = [
     "build_class_node_id",
     "build_callable_node_id",
     "build_nested_qualified_name",
-    "build_disambiguated_symbol_id",
+    "DuplicateTracker",
     # Ranges
     "to_zero_based_line",
     "make_position",

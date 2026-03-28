@@ -3,6 +3,48 @@
 from typing import Optional
 
 
+class DuplicateTracker:
+    """Track symbol names to detect duplicates within a file extraction.
+    
+    When duplicate (kind, qualified_name) pairs are detected, adds a
+    disambiguation suffix to the symbol ID.
+    
+    Usage:
+        tracker = DuplicateTracker()
+        # First occurrence - clean ID
+        id1 = tracker.get_symbol_id("repo:test", "function", "outer.inner")
+        # Returns: sym:repo:test:function:outer.inner
+        
+        # Second occurrence - disambiguated ID
+        id2 = tracker.get_symbol_id("repo:test", "function", "outer.inner")
+        # Returns: sym:repo:test:function:outer.inner:dup1
+    """
+    
+    def __init__(self) -> None:
+        """Initialize empty duplicate tracker."""
+        self._seen: dict[tuple[str, str], int] = {}  # (kind, qualified_name) -> count
+    
+    def get_symbol_id(self, repo_id: str, kind: str, qualified_name: str) -> str:
+        """Get symbol ID, adding disambiguation suffix if duplicate.
+        
+        Args:
+            repo_id: Repository ID.
+            kind: Symbol kind.
+            qualified_name: Symbol qualified name.
+            
+        Returns:
+            Symbol ID with optional :dup{N} suffix for duplicates.
+        """
+        key = (kind, qualified_name)
+        count = self._seen.get(key, 0)
+        self._seen[key] = count + 1
+        
+        base_id = f"sym:{repo_id}:{kind}:{qualified_name}"
+        if count > 0:
+            return f"{base_id}:dup{count}"
+        return base_id
+
+
 def build_module_qualified_name(module_path: str) -> str:
     """Build qualified name for a module.
 
@@ -101,26 +143,3 @@ def build_callable_node_id(repo_id: str, kind: str, qualified_name: str) -> str:
         Node ID in format 'sym:{repo_id}:{kind}:{qualified_name}'.
     """
     return f"sym:{repo_id}:{kind}:{qualified_name}"
-
-
-def build_disambiguated_symbol_id(
-    repo_id: str,
-    kind: str,
-    qualified_name: str,
-    lineno: int,
-    col: int,
-) -> str:
-    """Build symbol ID with disambiguation for duplicate same-scope declarations.
-
-    Args:
-        repo_id: Repository ID.
-        kind: Symbol kind.
-        qualified_name: Qualified name (same for duplicates).
-        lineno: Line number (one-based, from AST).
-        col: Column offset (zero-based, from AST).
-
-    Returns:
-        Disambiguated symbol ID in format 
-        'sym:{repo_id}:{kind}:{qualified_name}:line{lineno}:col{col}'.
-    """
-    return f"sym:{repo_id}:{kind}:{qualified_name}:line{lineno}:col{col}"
