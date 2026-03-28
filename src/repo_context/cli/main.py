@@ -16,7 +16,11 @@ from repo_context.storage import (
     upsert_edges,
     list_files_for_repo,
     get_repo_by_id,
+    list_nodes_for_repo,
+    list_edges_for_repo,
+    get_node_by_id,
 )
+from repo_context.graph import get_repo_graph_stats
 from repo_context.parsing.scanner import scan_repository
 from repo_context.parsing.pipeline import extract_file_graph
 
@@ -252,6 +256,118 @@ def cmd_extract_ast(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_graph_stats(args: argparse.Namespace) -> int:
+    """Show graph statistics for a repository.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    repo_id = args.repo_id
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            stats = get_repo_graph_stats(conn, repo_id)
+            
+            if args.json:
+                print(json.dumps(stats, indent=2))
+            else:
+                print(f"Graph Statistics for {repo_id}")
+                print(f"  Nodes: {stats['node_count']}")
+                print(f"    Modules: {stats['module_count']}")
+                print(f"    Classes: {stats['class_count']}")
+                print(f"    Callables: {stats['callable_count']}")
+                print(f"      Local callables: {stats['local_callable_count']}")
+                print(f"  Edges: {stats['edge_count']}")
+            
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        print(f"Error getting graph stats: {exc}", file=sys.stderr)
+        return 1
+
+
+def cmd_list_nodes(args: argparse.Namespace) -> int:
+    """List nodes for a repository.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    repo_id = args.repo_id
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            nodes = list_nodes_for_repo(conn, repo_id)
+            
+            if args.json:
+                print(json.dumps(nodes, indent=2))
+            else:
+                print(f"Nodes in {repo_id}:")
+                for node in nodes:
+                    print(f"  [{node['kind']}] {node['qualified_name']}")
+            
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        print(f"Error listing nodes: {exc}", file=sys.stderr)
+        return 1
+
+
+def cmd_show_node(args: argparse.Namespace) -> int:
+    """Show details for a specific node.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    node_id = args.node_id
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            node = get_node_by_id(conn, node_id)
+            
+            if node is None:
+                print(f"Error: Node not found: {node_id}", file=sys.stderr)
+                return 1
+            
+            if args.json:
+                print(json.dumps(node, indent=2))
+            else:
+                print(f"Node: {node['id']}")
+                print(f"  Kind: {node['kind']}")
+                print(f"  Name: {node['name']}")
+                print(f"  Qualified Name: {node['qualified_name']}")
+                print(f"  File: {node['file_id']}")
+                print(f"  Scope: {node.get('scope', 'N/A')}")
+                print(f"  Parent ID: {node.get('parent_id', 'N/A')}")
+                print(f"  Lexical Parent ID: {node.get('lexical_parent_id', 'N/A')}")
+            
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        print(f"Error showing node: {exc}", file=sys.stderr)
+        return 1
+
+
 def main() -> int:
     """Main entry point.
 
@@ -319,6 +435,63 @@ def main() -> int:
         help="Output summary as JSON",
     )
     extract_parser.set_defaults(func=cmd_extract_ast)
+
+    # graph-stats command
+    stats_parser = subparsers.add_parser("graph-stats", help="Show graph statistics")
+    stats_parser.add_argument(
+        "repo_id",
+        type=str,
+        help="Repository ID",
+    )
+    stats_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    stats_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    stats_parser.set_defaults(func=cmd_graph_stats)
+
+    # list-nodes command
+    list_parser = subparsers.add_parser("list-nodes", help="List nodes for a repository")
+    list_parser.add_argument(
+        "repo_id",
+        type=str,
+        help="Repository ID",
+    )
+    list_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    list_parser.set_defaults(func=cmd_list_nodes)
+
+    # show-node command
+    show_parser = subparsers.add_parser("show-node", help="Show details for a specific node")
+    show_parser.add_argument(
+        "node_id",
+        type=str,
+        help="Node ID",
+    )
+    show_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    show_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    show_parser.set_defaults(func=cmd_show_node)
 
     args = parser.parse_args()
     return args.func(args)
