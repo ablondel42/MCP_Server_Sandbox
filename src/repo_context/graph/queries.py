@@ -9,6 +9,7 @@ from repo_context.storage.nodes import (
     list_nodes_for_repo,
     list_child_nodes,
     list_lexical_children,
+    find_nodes_by_name,
 )
 from repo_context.storage.edges import (
     get_edge_by_id,
@@ -51,17 +52,52 @@ def get_symbol_by_qualified_name(
     kind: str | None = None,
 ) -> dict | None:
     """Get a symbol by qualified name.
-    
+
     Args:
         conn: SQLite connection.
         repo_id: Repository ID.
         qualified_name: Symbol qualified name.
         kind: Optional kind filter for disambiguation.
-        
+
     Returns:
         Symbol dictionary or None if not found or ambiguous.
     """
     return get_node_by_qualified_name(conn, repo_id, qualified_name, kind)
+
+
+def find_symbols_by_name(
+    conn: sqlite3.Connection,
+    repo_id: str,
+    name_pattern: str,
+    kind: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Find symbols by name or qualified name pattern.
+
+    Supports wildcard matching using % character. Searches both the
+    simple name and the full qualified name.
+
+    Args:
+        conn: SQLite connection.
+        repo_id: Repository ID to search in.
+        name_pattern: Name or qualified name pattern (supports % wildcard).
+        kind: Optional symbol kind filter (e.g., "class", "function").
+        limit: Maximum number of results to return (default 50).
+
+    Returns:
+        List of matching symbol dictionaries, ordered by kind, qualified_name, id.
+
+    Examples:
+        # Find by simple name
+        find_symbols_by_name(conn, "repo:test", "AuthService")
+
+        # Find by qualified name pattern
+        find_symbols_by_name(conn, "repo:test", "src.repo_context.%")
+
+        # Find classes only
+        find_symbols_by_name(conn, "repo:test", "Service", kind="class")
+    """
+    return find_nodes_by_name(conn, repo_id, name_pattern, kind, limit)
 
 
 def get_parent_symbol(conn: sqlite3.Connection, node: dict) -> dict | None:

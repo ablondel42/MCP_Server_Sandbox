@@ -15,8 +15,13 @@ from repo_context.storage import (
     replace_file_graph,
     list_files_for_repo,
     get_repo_by_id,
+    list_nodes_for_repo,
+    get_node_by_id,
+    get_node_by_qualified_name,
 )
-from repo_context.graph import get_repo_graph_stats
+from repo_context.graph import get_repo_graph_stats, find_symbols_by_name
+from repo_context.context import build_symbol_context
+from repo_context.models import SymbolContext
 from repo_context.parsing.scanner import scan_repository
 from repo_context.parsing.pipeline import extract_file_graph
 
@@ -288,6 +293,304 @@ def cmd_graph_stats(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_find_symbol(args: argparse.Namespace) -> int:
+    """Find symbols by name or qualified name pattern.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    repo_id = args.repo_id
+    pattern = args.pattern
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            # Convert simple pattern to wildcard pattern if no % provided
+            if "%" not in pattern:
+                pattern = f"%{pattern}%"
+
+            symbols = find_symbols_by_name(
+                conn, repo_id, pattern,
+                kind=args.kind,
+                limit=args.limit
+            )
+
+            if args.json:
+                print(json.dumps(symbols, indent=2))
+            else:
+                print(f"Symbols matching '{pattern}' in {repo_id}:")
+                if not symbols:
+                    print("  (no matches)")
+                else:
+                    for symbol in symbols:
+                        print(f"  [{symbol['kind']}] {symbol['qualified_name']}")
+                print(f"\nFound {len(symbols)} symbol(s)")
+
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        print(f"Error finding symbols: {exc}", file=sys.stderr)
+        return 1
+
+
+def _find_symbol_by_name_or_id(
+    conn,
+    repo_id: str,
+    identifier: str,
+) -> dict | None:
+    """Find a symbol by ID or by name pattern.
+    
+    Args:
+        conn: SQLite connection.
+        repo_id: Repository ID.
+        identifier: Either a full node ID or a name pattern.
+        
+    Returns:
+        Symbol dictionary or None if not found or ambiguous.
+    """
+    # Try as exact ID first
+    if identifier.startswith("sym:"):
+        return get_node_by_id(conn, identifier)
+    
+    # Try as exact qualified name
+    symbol = get_node_by_qualified_name(conn, repo_id, identifier)
+    if symbol is not None:
+        return symbol
+    
+    # Try as exact name match (not pattern)
+    symbols = find_symbols_by_name(conn, repo_id, identifier, limit=10)
+    # Look for exact name match first
+    for sym in symbols:
+        if sym["name"] == identifier:
+            return sym
+    
+    # If no exact match, check if there's only one result
+    if len(symbols) == 1:
+        return symbols[0]
+    
+    # Multiple matches - return None (ambiguous)
+    return None
+
+
+def cmd_symbol_context(args: argparse.Namespace) -> int:
+    """Get full context for a symbol including relationships and references.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    repo_id = args.repo_id
+    identifier = args.identifier
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            # Find the symbol
+            if args.by_name:
+                symbol = _find_symbol_by_name_or_id(conn, repo_id, identifier)
+                if symbol is None:
+                    print(f"Error: Symbol '{identifier}' not found or ambiguous", file=sys.stderr)
+                    return 1
+                node_id = symbol["id"]
+            else:
+                node_id = identifier
+
+            # Build context
+            context = build_symbol_context(conn, node_id)
+            if context is None:
+                print(f"Error: Symbol not found: {node_id}", file=sys.stderr)
+                return 1
+
+            if args.json:
+                # Serialize context to JSON
+                output = {
+                    "focus_symbol": context.focus_symbol,
+                    "structural_parent": context.structural_parent,
+                    "structural_children": context.structural_children,
+                    "lexical_parent": context.lexical_parent,
+                    "lexical_children": context.lexical_children,
+                    "incoming_edges": context.incoming_edges,
+                    "outgoing_edges": context.outgoing_edges,
+                    "file_siblings": context.file_siblings,
+                    "structural_summary": context.structural_summary,
+                    "freshness": context.freshness,
+                    "confidence": context.confidence,
+                }
+                print(json.dumps(output, indent=2))
+            else:
+                # Print human-readable format
+                focus = context.focus_symbol
+                print(f"\nSymbol Context: {focus['qualified_name']}")
+                print("=" * 60)
+
+                print(f"\nFocus Symbol:")
+                print(f"  Kind: {focus['kind']}")
+                print(f"  File: {focus['file_id']}")
+                print(f"  Scope: {focus['scope']}")
+
+                print(f"\nStructural Relationships:")
+                if context.structural_parent:
+                    print(f"  Parent: {context.structural_parent['qualified_name']} ({context.structural_parent['kind']})")
+                else:
+                    print(f"  Parent: None")
+                
+                if context.structural_children:
+                    print(f"  Children ({len(context.structural_children)}):")
+                    for child in context.structural_children[:10]:
+                        print(f"    - {child['name']} ({child['kind']})")
+                    if len(context.structural_children) > 10:
+                        print(f"    ... and {len(context.structural_children) - 10} more")
+                else:
+                    print(f"  Children: None")
+
+                print(f"\nLexical Relationships:")
+                if context.lexical_parent:
+                    print(f"  Parent: {context.lexical_parent['qualified_name']} ({context.lexical_parent['kind']})")
+                else:
+                    print(f"  Parent: None")
+                
+                if context.lexical_children:
+                    print(f"  Children ({len(context.lexical_children)}):")
+                    for child in context.lexical_children[:10]:
+                        print(f"    - {child['name']} ({child['kind']})")
+                    if len(context.lexical_children) > 10:
+                        print(f"    ... and {len(context.lexical_children) - 10} more")
+                else:
+                    print(f"  Children: None")
+
+                print(f"\nIncoming Edges ({len(context.incoming_edges)}):")
+                if context.incoming_edges:
+                    for edge in context.incoming_edges[:10]:
+                        print(f"  [{edge['kind']}] {edge['from_id']} -> {edge['to_id']}")
+                    if len(context.incoming_edges) > 10:
+                        print(f"  ... and {len(context.incoming_edges) - 10} more")
+                else:
+                    print("  (none)")
+
+                print(f"\nOutgoing Edges ({len(context.outgoing_edges)}):")
+                if context.outgoing_edges:
+                    for edge in context.outgoing_edges[:10]:
+                        print(f"  [{edge['kind']}] {edge['from_id']} -> {edge['to_id']}")
+                    if len(context.outgoing_edges) > 10:
+                        print(f"  ... and {len(context.outgoing_edges) - 10} more")
+                else:
+                    print("  (none)")
+
+                print(f"\nFile Siblings ({len(context.file_siblings)}):")
+                if context.file_siblings:
+                    for sib in context.file_siblings[:10]:
+                        print(f"  - {sib['name']} ({sib['kind']})")
+                    if len(context.file_siblings) > 10:
+                        print(f"  ... and {len(context.file_siblings) - 10} more")
+                else:
+                    print("  (none)")
+
+                print(f"\nSummary:")
+                summary = context.structural_summary
+                print(f"  - Has structural parent: {'Yes' if summary['has_structural_parent'] else 'No'}")
+                print(f"  - Structural children: {summary['structural_child_count']}")
+                print(f"  - Has lexical parent: {'Yes' if summary['has_lexical_parent'] else 'No'}")
+                print(f"  - Lexical children: {summary['lexical_child_count']}")
+                print(f"  - Incoming edges: {summary['incoming_edge_count']}")
+                print(f"  - Outgoing edges: {summary['outgoing_edge_count']}")
+                print(f"  - Is local declaration: {'Yes' if summary['is_local_declaration'] else 'No'}")
+
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        print(f"Error getting symbol context: {exc}", file=sys.stderr)
+        return 1
+
+
+def cmd_symbol_references(args: argparse.Namespace) -> int:
+    """Get incoming and/or outgoing references (edges) for a symbol.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    repo_id = args.repo_id
+    identifier = args.identifier
+    direction = args.direction
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            # Find the symbol
+            if args.by_name:
+                symbol = _find_symbol_by_name_or_id(conn, repo_id, identifier)
+                if symbol is None:
+                    print(f"Error: Symbol '{identifier}' not found or ambiguous", file=sys.stderr)
+                    return 1
+                node_id = symbol["id"]
+            else:
+                node_id = identifier
+                symbol = get_node_by_id(conn, node_id)
+                if symbol is None:
+                    print(f"Error: Symbol not found: {node_id}", file=sys.stderr)
+                    return 1
+
+            # Get edges from context
+            context = build_symbol_context(conn, node_id)
+            if context is None:
+                print(f"Error: Could not build context for: {node_id}", file=sys.stderr)
+                return 1
+
+            # Filter edges by direction
+            edges_to_show = []
+            if direction in ("incoming", "both"):
+                edges_to_show.extend(("incoming", context.incoming_edges))
+            if direction in ("outgoing", "both"):
+                edges_to_show.extend(("outgoing", context.outgoing_edges))
+
+            if args.json:
+                output = {
+                    "symbol": symbol,
+                    "edges": {},
+                }
+                for edge_type, edge_list in edges_to_show:
+                    output["edges"][edge_type] = edge_list
+                print(json.dumps(output, indent=2))
+            else:
+                print(f"\nReferences for: {symbol['qualified_name']}")
+                print("=" * 60)
+
+                for edge_type, edge_list in edges_to_show:
+                    print(f"\n{edge_type.title()} Edges ({len(edge_list)}):")
+                    if edge_list:
+                        for edge in edge_list[:20]:
+                            if edge_type == "incoming":
+                                print(f"  [{edge['kind']}] {edge['from_id']} -> {edge['to_id']}")
+                            else:
+                                print(f"  [{edge['kind']}] {edge['from_id']} -> {edge['to_id']}")
+                        if len(edge_list) > 20:
+                            print(f"  ... and {len(edge_list) - 20} more")
+                    else:
+                        print("  (none)")
+
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        print(f"Error getting symbol references: {exc}", file=sys.stderr)
+        return 1
+
+
 def cmd_list_nodes(args: argparse.Namespace) -> int:
     """List nodes for a repository.
 
@@ -449,6 +752,107 @@ def main() -> int:
         help="Output as JSON",
     )
     stats_parser.set_defaults(func=cmd_graph_stats)
+
+    # find-symbol command
+    find_parser = subparsers.add_parser("find-symbol", help="Find symbols by name or qualified name pattern")
+    find_parser.add_argument(
+        "repo_id",
+        type=str,
+        help="Repository ID",
+    )
+    find_parser.add_argument(
+        "pattern",
+        type=str,
+        help="Name or qualified name pattern (supports %% wildcard)",
+    )
+    find_parser.add_argument(
+        "--kind",
+        type=str,
+        choices=["module", "class", "function", "async_function", "method", "async_method", "local_function", "local_async_function"],
+        help="Filter by symbol kind",
+    )
+    find_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum number of results (default: 50)",
+    )
+    find_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    find_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    find_parser.set_defaults(func=cmd_find_symbol)
+
+    # symbol-context command
+    context_parser = subparsers.add_parser("symbol-context", help="Get full context for a symbol including relationships")
+    context_parser.add_argument(
+        "repo_id",
+        type=str,
+        help="Repository ID",
+    )
+    context_parser.add_argument(
+        "identifier",
+        type=str,
+        help="Node ID or symbol name",
+    )
+    context_parser.add_argument(
+        "--by-name",
+        action="store_true",
+        help="Search by name pattern instead of exact ID",
+    )
+    context_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    context_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    context_parser.set_defaults(func=cmd_symbol_context)
+
+    # symbol-references command
+    refs_parser = subparsers.add_parser("symbol-references", help="Get incoming/outgoing references for a symbol")
+    refs_parser.add_argument(
+        "repo_id",
+        type=str,
+        help="Repository ID",
+    )
+    refs_parser.add_argument(
+        "identifier",
+        type=str,
+        help="Node ID or symbol name",
+    )
+    refs_parser.add_argument(
+        "--by-name",
+        action="store_true",
+        help="Search by name pattern instead of exact ID",
+    )
+    refs_parser.add_argument(
+        "--direction",
+        type=str,
+        choices=["incoming", "outgoing", "both"],
+        default="both",
+        help="Which edges to show (default: both)",
+    )
+    refs_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    refs_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    refs_parser.set_defaults(func=cmd_symbol_references)
 
     # list-nodes command
     list_parser = subparsers.add_parser("list-nodes", help="List nodes for a repository")

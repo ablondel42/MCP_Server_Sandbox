@@ -268,11 +268,11 @@ def list_nodes_for_file(conn: sqlite3.Connection, file_id: str) -> list[dict]:
 
 def list_nodes_for_repo(conn: sqlite3.Connection, repo_id: str) -> list[dict]:
     """List all nodes for a specific repository.
-    
+
     Args:
         conn: SQLite connection.
         repo_id: Repository ID to filter by.
-        
+
     Returns:
         List of node dictionaries ordered by kind, qualified_name, id.
     """
@@ -288,6 +288,56 @@ def list_nodes_for_repo(conn: sqlite3.Connection, repo_id: str) -> list[dict]:
         """,
         (repo_id,),
     )
+    return [row_to_node(row) for row in cursor.fetchall()]
+
+
+def find_nodes_by_name(
+    conn: sqlite3.Connection,
+    repo_id: str,
+    name_pattern: str,
+    kind: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Find nodes by name or qualified name pattern.
+
+    Args:
+        conn: SQLite connection.
+        repo_id: Repository ID to filter by.
+        name_pattern: Name or qualified name pattern (supports % wildcard).
+        kind: Optional symbol kind filter.
+        limit: Maximum number of results to return.
+
+    Returns:
+        List of matching node dictionaries ordered by kind, qualified_name, id.
+    """
+    if kind is not None:
+        cursor = conn.execute(
+            """
+            SELECT id, repo_id, file_id, language, kind, name, qualified_name, uri,
+                   range_json, selection_range_json, parent_id, visibility_hint,
+                   doc_summary, content_hash, semantic_hash, source, confidence,
+                   payload_json, scope, lexical_parent_id, last_indexed_at
+            FROM nodes
+            WHERE repo_id = ? AND (name LIKE ? OR qualified_name LIKE ?) AND kind = ?
+            ORDER BY kind, qualified_name, id
+            LIMIT ?
+            """,
+            (repo_id, name_pattern, name_pattern, kind, limit),
+        )
+    else:
+        cursor = conn.execute(
+            """
+            SELECT id, repo_id, file_id, language, kind, name, qualified_name, uri,
+                   range_json, selection_range_json, parent_id, visibility_hint,
+                   doc_summary, content_hash, semantic_hash, source, confidence,
+                   payload_json, scope, lexical_parent_id, last_indexed_at
+            FROM nodes
+            WHERE repo_id = ? AND (name LIKE ? OR qualified_name LIKE ?)
+            ORDER BY kind, qualified_name, id
+            LIMIT ?
+            """,
+            (repo_id, name_pattern, name_pattern, limit),
+        )
     return [row_to_node(row) for row in cursor.fetchall()]
 
 
