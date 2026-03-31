@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
+from repo_context.constants import Language
 from repo_context.models.repo import RepoRecord
 
 
@@ -15,7 +16,7 @@ class TestRepoRecordValid:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
         )
         assert repo.id == "repo:test"
@@ -28,7 +29,7 @@ class TestRepoRecordValid:
             id="repo:my_project",
             root_path="/Users/dev/projects/my_project",
             name="My Project",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
             last_indexed_at="2026-03-23T12:00:00Z",
         )
@@ -46,7 +47,7 @@ class TestRepoRecordIdValidation:
                 id="test-repo",
                 root_path="/path/to/repo",
                 name="test-repo",
-                default_language="python",
+                default_language=Language.PYTHON,
                 created_at="2026-01-01T00:00:00Z",
             )
         assert "repo:" in str(exc_info.value).lower()
@@ -58,7 +59,7 @@ class TestRepoRecordIdValidation:
                 id="",
                 root_path="/path/to/repo",
                 name="test-repo",
-                default_language="python",
+                default_language=Language.PYTHON,
                 created_at="2026-01-01T00:00:00Z",
             )
 
@@ -69,7 +70,7 @@ class TestRepoRecordIdValidation:
                 id=None,  # type: ignore[arg-type]
                 root_path="/path/to/repo",
                 name="test-repo",
-                default_language="python",
+                default_language=Language.PYTHON,
                 created_at="2026-01-01T00:00:00Z",
             )
 
@@ -83,7 +84,7 @@ class TestRepoRecordRootPathValidation:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
         )
         assert repo.root_path == "/path/to/repo"
@@ -95,7 +96,7 @@ class TestRepoRecordRootPathValidation:
                 id="repo:test",
                 root_path="",
                 name="test-repo",
-                default_language="python",
+                default_language=Language.PYTHON,
                 created_at="2026-01-01T00:00:00Z",
             )
 
@@ -106,7 +107,7 @@ class TestRepoRecordRootPathValidation:
                 id="repo:test",
                 root_path=None,  # type: ignore[arg-type]
                 name="test-repo",
-                default_language="python",
+                default_language=Language.PYTHON,
                 created_at="2026-01-01T00:00:00Z",
             )
 
@@ -120,7 +121,7 @@ class TestRepoRecordNameValidation:
             id="repo:test",
             root_path="/path/to/repo",
             name="My Repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
         )
         assert repo.name == "My Repo"
@@ -132,7 +133,7 @@ class TestRepoRecordNameValidation:
                 id="repo:test",
                 root_path="/path/to/repo",
                 name="",
-                default_language="python",
+                default_language=Language.PYTHON,
                 created_at="2026-01-01T00:00:00Z",
             )
 
@@ -146,10 +147,10 @@ class TestRepoRecordLanguageValidation:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
         )
-        assert repo.default_language == "python"
+        assert repo.default_language == Language.PYTHON
 
     def test_reject_unsupported_language(self) -> None:
         """Test that unsupported language is rejected."""
@@ -185,7 +186,7 @@ class TestRepoRecordTimestampValidation:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
         )
         assert repo.created_at == "2026-01-01T00:00:00Z"
@@ -196,7 +197,7 @@ class TestRepoRecordTimestampValidation:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T12:00:00+05:00",
         )
         assert repo.created_at == "2026-01-01T12:00:00+05:00"
@@ -208,7 +209,7 @@ class TestRepoRecordTimestampValidation:
                 id="repo:test",
                 root_path="/path/to/repo",
                 name="test-repo",
-                default_language="python",
+                default_language=Language.PYTHON,
                 created_at="not-a-date",
             )
         assert "iso" in str(exc_info.value).lower() or "datetime" in str(exc_info.value).lower()
@@ -221,7 +222,7 @@ class TestRepoRecordTimestampValidation:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01",
         )
         assert repo.created_at == "2026-01-01"
@@ -232,7 +233,7 @@ class TestRepoRecordTimestampValidation:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
             last_indexed_at="2026-03-23T12:00:00Z",
         )
@@ -244,7 +245,7 @@ class TestRepoRecordTimestampValidation:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
         )
         assert repo.last_indexed_at is None
@@ -259,7 +260,7 @@ class TestRepoRecordModelBehavior:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
         )
         data = repo.model_dump()
@@ -277,7 +278,7 @@ class TestRepoRecordModelBehavior:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
         )
         json_str = repo.model_dump_json()
@@ -304,7 +305,7 @@ class TestRepoRecordModelBehavior:
             id="repo:test",
             root_path="/path/to/repo",
             name="test-repo",
-            default_language="python",
+            default_language=Language.PYTHON,
             created_at="2026-01-01T00:00:00Z",
         )
         with pytest.raises(Exception):  # Pydantic raises ValidationError or similar
