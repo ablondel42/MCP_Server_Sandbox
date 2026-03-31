@@ -4,13 +4,19 @@ import json
 import sqlite3
 from typing import Any
 
+from repo_context.logging_config import get_logger
+from repo_context.models.edge import Edge
+from repo_context.validation.exceptions import DatabaseError, ValidationError
+
+logger = get_logger("storage.edges")
+
 
 def _serialize_json(value: Any) -> str | None:
     """Serialize a value to JSON string.
-    
+
     Args:
         value: Value to serialize.
-        
+
     Returns:
         JSON string or None if value is None.
     """
@@ -21,16 +27,41 @@ def _serialize_json(value: Any) -> str | None:
 
 def _deserialize_json(value: str | None) -> Any:
     """Deserialize a JSON string to Python object.
-    
+
     Args:
         value: JSON string or None.
-        
+
     Returns:
         Python object or None if value is None.
     """
     if value is None:
         return None
     return json.loads(value)
+
+
+def _validate_and_normalize_edge(edge: dict | Edge) -> Edge:
+    """Validate and normalize an edge input.
+    
+    Args:
+        edge: Edge dictionary or Edge instance.
+        
+    Returns:
+        Validated Edge instance.
+        
+    Raises:
+        ValidationError: If edge validation fails.
+    """
+    if isinstance(edge, Edge):
+        return edge
+    
+    try:
+        return Edge(**edge)
+    except Exception as e:
+        logger.error("Edge validation failed", extra={
+            "edge_id": edge.get("id") if isinstance(edge, dict) else None,
+            "error": str(e)
+        })
+        raise ValidationError(f"Invalid edge data: {e}") from e
 
 
 def edge_to_row(edge: dict) -> dict:
@@ -87,26 +118,36 @@ def row_to_edge(row: sqlite3.Row) -> dict:
     }
 
 
-def upsert_edge(conn: sqlite3.Connection, edge: dict) -> None:
+def upsert_edge(conn: sqlite3.Connection, edge: dict | Edge) -> None:
     """Insert or update a single edge.
 
     Args:
         conn: SQLite connection.
-        edge: Edge dictionary with all required fields.
+        edge: Edge dictionary or Edge with all required fields.
+        
+    Raises:
+        ValidationError: If edge validation fails.
+        DatabaseError: If database operation fails.
     """
-    row = edge_to_row(edge)
-    conn.execute(
-        """
-        INSERT INTO edges (
-            id, repo_id, kind, from_id, to_id, source, confidence,
-            evidence_file_id, evidence_uri, evidence_range_json,
-            payload_json, last_indexed_at
-        ) VALUES (
-            :id, :repo_id, :kind, :from_id, :to_id, :source, :confidence,
-            :evidence_file_id, :evidence_uri, :evidence_range_json,
-            :payload_json, :last_indexed_at
-        )
-        ON CONFLICT(id) DO UPDATE SET
+    # Validate edge
+    validated = _validate_and_normalize_edge(edge)
+    
+    logger.debug("Upserting edge", extra={"edge_id": validated.id})
+    
+    row = edge_to_row(validated.model_dump())
+    try:
+        conn.execute(
+            """
+            INSERT INTO edges (
+                id, repo_id, kind, from_id, to_id, source, confidence,
+                evidence_file_id, evidence_uri, evidence_range_json,
+                payload_json, last_indexed_at
+            ) VALUES (
+                :id, :repo_id, :kind, :from_id, :to_id, :source, :confidence,
+                :evidence_file_id, :evidence_uri, :evidence_range_json,
+                :payload_json, :last_indexed_at
+            )
+            ON CONFLICT(id) DO UPDATE SET
             repo_id = excluded.repo_id,
             kind = excluded.kind,
             from_id = excluded.from_id,
@@ -121,9 +162,15 @@ def upsert_edge(conn: sqlite3.Connection, edge: dict) -> None:
         """,
         row,
     )
+    except sqlite3.Error as e:
+        logger.error("Database error upserting edge", extra={
+            "edge_id": validated.id,
+            "error": str(e)
+        })
+        raise DatabaseError(f"Failed to upsert edge {validated.id}") from e
 
 
-def upsert_edges(conn: sqlite3.Connection, edges: list[dict]) -> None:
+def upsert_edges(conn: sqlite3.Connection, edges: list[dict | Edge]) -> None:
     """Insert or update multiple edges.
 
     Args:

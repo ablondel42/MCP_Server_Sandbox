@@ -49,6 +49,171 @@ def cmd_init_db(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_run_full(args: argparse.Namespace) -> int:
+    """Initialize database, scan repository, and extract AST.
+
+    This is the full pipeline: init-db + scan + extract-ast.
+    Defaults to current working directory if no path is provided.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    repo_path = args.repo_path if args.repo_path else Path.cwd()
+
+    try:
+        # Step 1: Initialize database
+        conn = get_connection(db_path)
+        initialize_database(conn)
+
+        # Step 2: Scan repository
+        repo, file_records = scan_repository(repo_path, config)
+        upsert_repo(conn, repo)
+        upsert_files(conn, file_records)
+        conn.commit()
+
+        # Step 3: Extract AST from all files
+        total_nodes = 0
+        total_edges = 0
+        failures = []
+
+        for file_record in file_records:
+            try:
+                nodes, edges, _ = extract_file_graph(repo.id, file_record, Path(repo_path))
+                replace_file_graph(conn, file_record.id, nodes, edges)
+                total_nodes += len(nodes)
+                total_edges += len(edges)
+            except Exception as exc:
+                failures.append((file_record.file_path, str(exc)))
+
+        conn.commit()
+        close_connection(conn)
+
+        # Print summary
+        if args.json:
+            output = {
+                "db_path": str(db_path),
+                "repo_id": repo.id,
+                "repo_name": repo.name,
+                "files_processed": len(file_records) - len(failures),
+                "failures": len(failures),
+                "nodes_extracted": total_nodes,
+                "edges_extracted": total_edges,
+            }
+            if failures:
+                output["failure_details"] = [{"file": f, "error": e} for f, e in failures]
+            print(json.dumps(output, indent=2))
+        else:
+            print(f"Database initialized at {db_path}")
+            print(f"Repository scanned: {repo.name}")
+            print(f"  Path: {repo_path}")
+            print(f"  Files found: {len(file_records)}")
+            print(f"  Nodes extracted: {total_nodes}")
+            print(f"  Edges extracted: {total_edges}")
+            if failures:
+                print(f"  Failures: {len(failures)}")
+                for file_path, error in failures[:5]:
+                    print(f"    - {file_path}: {error}")
+                if len(failures) > 5:
+                    print(f"    ... and {len(failures) - 5} more")
+            print("Ready for testing!")
+
+        return 0
+
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except NotADirectoryError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
+def cmd_run_scan(args: argparse.Namespace) -> int:
+    """Initialize database and scan repository (no AST extraction).
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    repo_path = args.repo_path if args.repo_path else Path.cwd()
+
+    try:
+        # Step 1: Initialize database
+        conn = get_connection(db_path)
+        initialize_database(conn)
+
+        # Step 2: Scan repository
+        repo, file_records = scan_repository(repo_path, config)
+        upsert_repo(conn, repo)
+        upsert_files(conn, file_records)
+        conn.commit()
+        close_connection(conn)
+
+        # Print summary
+        if args.json:
+            output = {
+                "db_path": str(db_path),
+                "repo_id": repo.id,
+                "repo_name": repo.name,
+                "files_processed": len(file_records),
+            }
+            print(json.dumps(output, indent=2))
+        else:
+            print(f"Database initialized at {db_path}")
+            print(f"Repository scanned: {repo.name}")
+            print(f"  Path: {repo_path}")
+            print(f"  Files found: {len(file_records)}")
+            print("Ready for AST extraction!")
+
+        return 0
+
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except NotADirectoryError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Handle 'rc run' command with optional subcommand.
+
+    Defaults to 'full' if no subcommand is provided.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    # Default to 'full' if no subcommand
+    run_command = getattr(args, 'run_command', None) or 'full'
+    
+    if run_command == 'full':
+        return cmd_run_full(args)
+    elif run_command == 'init-db':
+        return cmd_init_db(args)
+    elif run_command == 'scan':
+        return cmd_run_scan(args)
+    else:
+        print(f"Error: Unknown run command: {run_command}", file=sys.stderr)
+        return 1
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Run health checks.
 
@@ -695,6 +860,36 @@ def main() -> int:
         help="Path to database file (default: repo_context.db)",
     )
     doctor_parser.set_defaults(func=cmd_doctor)
+
+    # run command (with subcommands)
+    # Arguments are defined on parent so they work with or without subcommand
+    run_parser = subparsers.add_parser("run", help="Setup and scan for testing")
+    run_parser.add_argument(
+        "run_command",
+        type=str,
+        nargs="?",
+        default="full",
+        choices=["full", "init-db", "scan"],
+        help="Run subcommand (default: full)",
+    )
+    run_parser.add_argument(
+        "repo_path",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="Path to the repository to scan (default: current working directory)",
+    )
+    run_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    run_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output summary as JSON",
+    )
+    run_parser.set_defaults(func=cmd_run)
 
     # scan-repo command
     scan_parser = subparsers.add_parser("scan-repo", help="Scan a repository")

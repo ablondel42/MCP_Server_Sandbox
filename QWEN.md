@@ -6,7 +6,7 @@
 
 **Core value proposition:** Safer AI-assisted planning through deterministic pre-change checking and human approval gates before implementation.
 
-**Current Status:** Phase 3 (AST Extraction) complete. Phases 1-3 implemented.
+**Current Status:** Phase 5 (Context Builder) complete. Phases 1-5 implemented.
 
 ---
 
@@ -19,7 +19,7 @@ Local repo
   -> Repository Scanner (file inventory) [DONE]
   -> AST Extraction (structural graph) [DONE]
   -> SQLite Graph Storage [DONE]
-  -> Context Builder (symbol-centered views) [TODO]
+  -> Context Builder (symbol-centered views) [DONE]
   -> LSP Reference Enrichment [TODO]
   -> Risk Engine (deterministic analysis) [TODO]
   -> MCP Tools [TODO]
@@ -35,7 +35,7 @@ Local repo
 | **Repository Scanner** | Discovers Python files, ignores junk directories, persists file inventory | 02 | ✅ Complete |
 | **AST Extraction** | Parses Python files, extracts modules/classes/callables, builds structural edges | 03 | ✅ Complete |
 | **Graph Storage** | SQLite persistence for nodes and edges, upsert/cleanup/query operations | 04 | ✅ Complete |
-| **Context Builder** | Assembles symbol-centered views with parent/children/edges/freshness/confidence | 05 | ⏳ Pending |
+| **Context Builder** | Assembles symbol-centered views with parent/children/edges/freshness/confidence | 05 | ✅ Complete |
 | **LSP References** | Enriches graph with `references` edges via language server queries | 06 | ⏳ Pending |
 | **Risk Engine** | Deterministic risk analysis: facts, issues, scores, decisions | 07 | ⏳ Pending |
 | **MCP Server** | Exposes tools: `resolve_symbol`, `get_symbol_context`, `refresh_references`, `analyze_risk` | 08 | ⏳ Pending |
@@ -78,6 +78,7 @@ MCP_Server_Sandbox/
         edge.py               # Edge
         context.py            # SymbolContext
         assessment.py         # PlanAssessment
+        edge_constants.py     # Edge kind constants
       storage/
         __init__.py
         db.py                 # SQLite connection helpers
@@ -86,6 +87,17 @@ MCP_Server_Sandbox/
         files.py              # FileRecord persistence
         nodes.py              # SymbolNode persistence
         edges.py              # Edge persistence
+        graph.py              # File graph replacement operations
+      graph/
+        __init__.py
+        queries.py            # Graph query operations
+        filters.py            # Graph filtering utilities
+      context/
+        __init__.py
+        builders.py           # Symbol context assembly
+        summaries.py          # Structural summary and confidence builders
+        freshness.py          # Freshness metadata builder
+        helpers.py            # Context helper functions
       parsing/
         __init__.py
         scanner.py            # Repository scanning
@@ -100,6 +112,7 @@ MCP_Server_Sandbox/
         callable_extractor.py # Function/method extraction
         import_extractor.py   # Import edge extraction
         inheritance_extractor.py  # Inheritance edge extraction
+        scope_tracker.py      # Lexical scope tracking for nested functions
         pipeline.py           # Per-file extraction orchestration
       cli/
         __init__.py
@@ -110,8 +123,15 @@ MCP_Server_Sandbox/
     test_db_init.py           # Database initialization tests
     test_models.py            # Model instantiation and JSON tests
     test_cli.py               # CLI command tests
-    test_scanner.py           # Scanner tests (16 tests)
-    test_ast_extraction.py    # AST extraction tests (10 tests)
+    test_scanner.py           # Scanner tests
+    test_ast_extraction.py    # AST extraction tests
+    test_graph_storage.py     # Graph storage tests
+    test_graph_queries.py     # Graph query tests
+    test_context_builder.py   # Context builder tests
+    test_context_freshness.py # Context freshness tests
+    test_context_summaries.py # Context summary tests
+    test_hashing.py           # Hashing tests
+    test_pathing.py           # Path normalization tests
     fixtures/                 # Test fixtures
       simple_package/
       inheritance_case/
@@ -168,11 +188,35 @@ repo-context extract-ast /path/to/repo --db-path /path/to/db.db
 # Extract AST with JSON output
 repo-context extract-ast /path/to/repo --json
 
+# Show graph statistics
+repo-context graph-stats repo:test
+
+# Find symbols by name pattern
+repo-context find-symbol repo:test ClassName
+
+# Find symbols with kind filter
+repo-context find-symbol repo:test Service --kind class
+
+# Get symbol context
+repo-context symbol-context repo:test sym:repo:test:class:MyClass
+
+# Get symbol context by name
+repo-context symbol-context repo:test MyClass --by-name
+
+# Get symbol references
+repo-context symbol-references repo:test MyClass --direction incoming
+
+# List all nodes in a repository
+repo-context list-nodes repo:test
+
+# Show details for a specific node
+repo-context show-node sym:repo:test:class:MyClass
+
 # Run all tests
 pytest
 
 # Run specific test file
-pytest tests/test_ast_extraction.py
+pytest tests/test_context_builder.py
 
 # Run with verbose output
 pytest -v
@@ -226,9 +270,11 @@ All fields must be present:
 
 Key fields:
 - `id: str` - Format: `sym:{repo_id}:{kind}:{qualified_name}`
-- `kind: str` - One of: `module`, `class`, `function`, `async_function`, `method`, `async_method`
+- `kind: str` - One of: `module`, `class`, `function`, `async_function`, `method`, `async_method`, `local_function`, `local_async_function`
 - `qualified_name: str` - Full logical path (e.g., `app.services.auth.AuthService.login`)
-- `parent_id: str | None` - Parent symbol ID
+- `parent_id: str | None` - Structural parent symbol ID
+- `lexical_parent_id: str | None` - Lexical parent for nested declarations
+- `scope: str` - One of: `module`, `class`, `function`
 - `range_json: str | None` - Full declaration range (zero-based)
 - `selection_range_json: str | None` - Name-focused range (zero-based)
 - `payload_json: str` - Type-specific metadata
@@ -237,11 +283,26 @@ Key fields:
 
 Key fields:
 - `id: str` - Deterministic ID
-- `kind: str` - One of: `contains`, `imports`, `inherits`
+- `kind: str` - One of: `contains`, `imports`, `inherits`, `SCOPE_PARENT`
 - `from_id: str` - Source node ID
 - `to_id: str` - Target node ID
 - `source: str` - `python-ast` for Phase 3
 - `confidence: float` - 1.0 for structural, 0.8 for imports, 0.75 for inheritance
+
+### SymbolContext Contract (Phase 5)
+
+Key fields:
+- `focus_symbol: dict` - The symbol being inspected
+- `structural_parent: dict | None` - Containing symbol in code hierarchy
+- `structural_children: list[dict]` - Directly contained symbols
+- `lexical_parent: dict | None` - Enclosing scope for nested declarations
+- `lexical_children: list[dict]` - Lexically nested symbols
+- `incoming_edges: list[dict]` - Relationships where others reference this symbol
+- `outgoing_edges: list[dict]` - Relationships where this symbol references others
+- `file_siblings: list[dict]` - Other symbols in same source file
+- `structural_summary: dict` - Statistics about structural relationships
+- `freshness: dict` - Timestamps indicating when context was last updated
+- `confidence: dict` - Trust scores for context data reliability
 
 ### Security & Safety
 
@@ -269,7 +330,7 @@ The system must be built in this exact sequence to avoid rework:
 2. **Repo Scanner** ✅ - File inventory, path normalization, hashing
 3. **AST Extraction** ✅ - Symbol extraction, structural edges
 4. **Graph Storage** ✅ - Persistence, upsert, cleanup, queries
-5. **Context Builder** ⏳ - Symbol-centered context assembly
+5. **Context Builder** ✅ - Symbol-centered context assembly
 6. **LSP References** ⏳ - Reference enrichment, location mapping
 7. **Risk Engine** ⏳ - Facts, issues, scoring, decisions
 8. **MCP Server** ⏳ - Tool exposure, input/output contracts
@@ -279,7 +340,8 @@ The system must be built in this exact sequence to avoid rework:
 **Build logic:**
 - Phases 1-2: Build file inventory
 - Phases 3-4: Build structural graph truth (current state)
-- Phases 5-7: Build reasoning inputs (context, references, risk)
+- Phase 5: Build context assembly (symbol-centered views)
+- Phases 6-7: Build reasoning inputs (context, references, risk)
 - Phase 8: Expose tools (MCP)
 - Phase 9: Keep state fresh (watch mode)
 - Phase 10: Turn into product workflow
@@ -293,7 +355,7 @@ The system must be built in this exact sequence to avoid rework:
 1. **repos** - Repository metadata
 2. **files** - File inventory
 3. **nodes** - Symbol nodes (modules, classes, functions, methods)
-4. **edges** - Relationships between nodes (`contains`, `imports`, `inherits`)
+4. **edges** - Relationships between nodes (`contains`, `imports`, `inherits`, `SCOPE_PARENT`)
 5. **index_runs** - Indexing operation tracking
 
 ### Indexes (13)
@@ -313,6 +375,12 @@ The system must be built in this exact sequence to avoid rework:
 | `doctor` | Health check (tables, indexes) | `--db-path PATH` |
 | `scan-repo` | Scan repository for Python files (Phase 2) | `--db-path PATH`, `--json` |
 | `extract-ast` | Extract AST and build structural graph (Phase 3) | `--db-path PATH`, `--json` |
+| `graph-stats` | Show graph statistics for a repository | `--db-path PATH`, `--json` |
+| `find-symbol` | Find symbols by name pattern | `--db-path PATH`, `--kind KIND`, `--limit N`, `--json` |
+| `symbol-context` | Get full context for a symbol | `--db-path PATH`, `--by-name`, `--json` |
+| `symbol-references` | Get incoming/outgoing edges for a symbol | `--db-path PATH`, `--by-name`, `--direction incoming|outgoing|both`, `--json` |
+| `list-nodes` | List all nodes in a repository | `--db-path PATH`, `--json` |
+| `show-node` | Show details for a specific node | `--db-path PATH`, `--json` |
 
 ---
 
@@ -328,9 +396,18 @@ The system must be built in this exact sequence to avoid rework:
 ### AST Extraction Design
 
 - **Structural only:** No semantic analysis in Phase 3
-- **Nested functions ignored:** Only top-level and direct class methods
+- **Nested functions tracked:** Phase 03b added `local_function`/`local_async_function` kinds with `lexical_parent_id`
 - **Unresolved targets explicit:** `external_or_unresolved:{name}` for imports, `unresolved_base:{name}` for inheritance
 - **Zero-based ranges:** All line numbers converted from AST one-based to zero-based
+- **SCOPE_PARENT edges:** Track lexical scope relationships for nested declarations
+
+### Context Builder Design (Phase 5)
+
+- **Stored graph only:** Context assembled from persisted nodes/edges, not raw AST
+- **Dual hierarchy:** Structural (`parent_id`) and lexical (`lexical_parent_id`) relationships kept separate
+- **Deterministic ordering:** Children, edges, and siblings ordered by kind, name, id
+- **Machine-friendly:** Structured data, no prose explanations
+- **No LSP yet:** Reference summaries added in Phase 6
 
 ### Serialization
 
@@ -349,12 +426,14 @@ The system must be built in this exact sequence to avoid rework:
 - **Module:** `sym:{repo_id}:module:{module_path}`
 - **Class:** `sym:{repo_id}:class:{qualified_name}`
 - **Callable:** `sym:{repo_id}:{kind}:{qualified_name}`
+- **Local function:** `sym:{repo_id}:local_function:{qualified_name}`
 
 ### Edge ID Format
 
 - **Contains:** `edge:{repo_id}:contains:{from_id}->{to_id}`
 - **Imports:** `edge:{repo_id}:imports:{from_id}->{to_id}:{lineno}`
 - **Inherits:** `edge:{repo_id}:inherits:{from_id}->unresolved_base:{base_name}`
+- **SCOPE_PARENT:** `edge:{repo_id}:SCOPE_PARENT:{from_id}->{to_id}`
 
 ---
 
@@ -383,10 +462,17 @@ The system must be built in this exact sequence to avoid rework:
 
 ### AST Extraction
 
-- **Creating nested function nodes:** Only top-level and direct class methods
+- **Ignoring nested functions:** Phase 03b added support for `local_function`/`local_async_function`
 - **One-based line numbers:** Always convert to zero-based
 - **Inventing semantic resolution:** Keep imports and bases as unresolved placeholders
 - **Inconsistent ID formats:** Use the exact ID format specified
+
+### Context Builder
+
+- **Conflating hierarchies:** Keep `structural_parent` and `lexical_parent` separate
+- **Non-deterministic ordering:** Always sort children, edges, siblings
+- **Adding reasoning:** Context assembly is not risk analysis
+- **Premature LSP:** Reference summaries come in Phase 6
 
 ---
 
@@ -406,15 +492,24 @@ The system must be built in this exact sequence to avoid rework:
 
 ---
 
+## Git Branches
+
+- **main:** Primary development branch
+- **phase-5-context-builder:** Branch at commit e01b42a for Phase 5 work
+- **backup-pre-phase5-reset-9b9f852:** Backup branch preserving work after Phase 5
+
+---
+
 ## References
 
 - `build-plan-phases/00-quick-summary.md` - Phase overview
 - `build-plan-phases/01-bootstrap.md` - Foundation setup (✅ Complete)
 - `build-plan-phases/02-repo-scanner.md` - File inventory (✅ Complete)
 - `build-plan-phases/03-ast-extraction.md` - Structural graph (✅ Complete)
+- `build-plan-phases/03b-nesting-support.md` - Nested function support (✅ Complete)
 - `build-plan-phases/04-graph-storage.md` - Persistence layer (✅ Complete)
-- `build-plan-phases/05-context-builder.md` - Context assembly (⏳ Next)
-- `build-plan-phases/06-lsp-references.md` - Reference enrichment
+- `build-plan-phases/05-context-builder.md` - Context assembly (✅ Complete)
+- `build-plan-phases/06-lsp-references.md` - Reference enrichment (⏳ Next)
 - `build-plan-phases/07-risk-engine.md` - Risk analysis
 - `build-plan-phases/08-mcp-server.md` - Tool exposure
 - `build-plan-phases/09-watch-mode.md` - Incremental updates

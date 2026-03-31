@@ -1,13 +1,13 @@
 """File record model."""
 
-from dataclasses import dataclass
-from typing import Optional
+from datetime import datetime
+
+from pydantic import BaseModel, Field, field_validator
 
 
-@dataclass
-class FileRecord:
+class FileRecord(BaseModel):
     """Represents a tracked source file.
-    
+
     Attributes:
         id: Unique identifier (e.g., "file:src/module.py").
         repo_id: ID of the repository this file belongs to.
@@ -21,13 +21,27 @@ class FileRecord:
         last_indexed_at: ISO 8601 timestamp of last indexing operation.
     """
 
-    id: str
-    repo_id: str
-    file_path: str
-    uri: str
-    module_path: str
-    language: str
-    content_hash: str
-    size_bytes: int
+    model_config = {"frozen": True}
+
+    id: str = Field(..., min_length=1, pattern=r"^file:.+")
+    repo_id: str = Field(..., min_length=1, pattern=r"^repo:.+")
+    file_path: str = Field(..., min_length=1)
+    uri: str = Field(..., pattern=r"^file://")
+    module_path: str = Field(..., min_length=1)
+    language: str = Field(default="python")
+    content_hash: str = Field(..., pattern=r"^sha256:.+")
+    size_bytes: int = Field(..., ge=0)
     last_modified_at: str
-    last_indexed_at: Optional[str] = None
+    last_indexed_at: str | None = None
+
+    @field_validator("last_modified_at", "last_indexed_at")
+    @classmethod
+    def validate_timestamp(cls, v: str | None) -> str | None:
+        """Validate timestamp is ISO 8601 format."""
+        if v is None:
+            return None
+        try:
+            datetime.fromisoformat(v)
+        except ValueError:
+            raise ValueError("Timestamp must be ISO 8601 format")
+        return v

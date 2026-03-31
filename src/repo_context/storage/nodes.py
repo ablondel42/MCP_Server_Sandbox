@@ -4,13 +4,19 @@ import json
 import sqlite3
 from typing import Any
 
+from repo_context.logging_config import get_logger
+from repo_context.models.node import SymbolNode
+from repo_context.validation.exceptions import DatabaseError, ValidationError
+
+logger = get_logger("storage.nodes")
+
 
 def _serialize_json(value: Any) -> str | None:
     """Serialize a value to JSON string.
-    
+
     Args:
         value: Value to serialize.
-        
+
     Returns:
         JSON string or None if value is None.
     """
@@ -21,16 +27,41 @@ def _serialize_json(value: Any) -> str | None:
 
 def _deserialize_json(value: str | None) -> Any:
     """Deserialize a JSON string to Python object.
-    
+
     Args:
         value: JSON string or None.
-        
+
     Returns:
         Python object or None if value is None.
     """
     if value is None:
         return None
     return json.loads(value)
+
+
+def _validate_and_normalize_node(node: dict | SymbolNode) -> SymbolNode:
+    """Validate and normalize a node input.
+    
+    Args:
+        node: Node dictionary or SymbolNode instance.
+        
+    Returns:
+        Validated SymbolNode instance.
+        
+    Raises:
+        ValidationError: If node validation fails.
+    """
+    if isinstance(node, SymbolNode):
+        return node
+    
+    try:
+        return SymbolNode(**node)
+    except Exception as e:
+        logger.error("Node validation failed", extra={
+            "node_id": node.get("id") if isinstance(node, dict) else None,
+            "error": str(e)
+        })
+        raise ValidationError(f"Invalid node data: {e}") from e
 
 
 def node_to_row(node: dict) -> dict:
@@ -105,54 +136,70 @@ def row_to_node(row: sqlite3.Row) -> dict:
     }
 
 
-def upsert_node(conn: sqlite3.Connection, node: dict) -> None:
+def upsert_node(conn: sqlite3.Connection, node: dict | SymbolNode) -> None:
     """Insert or update a single node.
 
     Args:
         conn: SQLite connection.
-        node: Node dictionary with all required fields.
+        node: Node dictionary or SymbolNode with all required fields.
+        
+    Raises:
+        ValidationError: If node validation fails.
+        DatabaseError: If database operation fails.
     """
-    row = node_to_row(node)
-    conn.execute(
-        """
-        INSERT INTO nodes (
-            id, repo_id, file_id, language, kind, name, qualified_name, uri,
-            range_json, selection_range_json, parent_id, visibility_hint,
-            doc_summary, content_hash, semantic_hash, source, confidence,
-            payload_json, scope, lexical_parent_id, last_indexed_at
-        ) VALUES (
-            :id, :repo_id, :file_id, :language, :kind, :name, :qualified_name, :uri,
-            :range_json, :selection_range_json, :parent_id, :visibility_hint,
-            :doc_summary, :content_hash, :semantic_hash, :source, :confidence,
-            :payload_json, :scope, :lexical_parent_id, :last_indexed_at
+    # Validate node
+    validated = _validate_and_normalize_node(node)
+    
+    logger.debug("Upserting node", extra={"node_id": validated.id})
+    
+    row = node_to_row(validated.model_dump())
+    try:
+        conn.execute(
+            """
+            INSERT INTO nodes (
+                id, repo_id, file_id, language, kind, name, qualified_name, uri,
+                range_json, selection_range_json, parent_id, visibility_hint,
+                doc_summary, content_hash, semantic_hash, source, confidence,
+                payload_json, scope, lexical_parent_id, last_indexed_at
+            ) VALUES (
+                :id, :repo_id, :file_id, :language, :kind, :name, :qualified_name, :uri,
+                :range_json, :selection_range_json, :parent_id, :visibility_hint,
+                :doc_summary, :content_hash, :semantic_hash, :source, :confidence,
+                :payload_json, :scope, :lexical_parent_id, :last_indexed_at
+            )
+            ON CONFLICT(id) DO UPDATE SET
+                repo_id = excluded.repo_id,
+                file_id = excluded.file_id,
+                language = excluded.language,
+                kind = excluded.kind,
+                name = excluded.name,
+                qualified_name = excluded.qualified_name,
+                uri = excluded.uri,
+                range_json = excluded.range_json,
+                selection_range_json = excluded.selection_range_json,
+                parent_id = excluded.parent_id,
+                visibility_hint = excluded.visibility_hint,
+                doc_summary = excluded.doc_summary,
+                content_hash = excluded.content_hash,
+                semantic_hash = excluded.semantic_hash,
+                source = excluded.source,
+                confidence = excluded.confidence,
+                payload_json = excluded.payload_json,
+                scope = excluded.scope,
+                lexical_parent_id = excluded.lexical_parent_id,
+                last_indexed_at = excluded.last_indexed_at
+            """,
+            row,
         )
-        ON CONFLICT(id) DO UPDATE SET
-            repo_id = excluded.repo_id,
-            file_id = excluded.file_id,
-            language = excluded.language,
-            kind = excluded.kind,
-            name = excluded.name,
-            qualified_name = excluded.qualified_name,
-            uri = excluded.uri,
-            range_json = excluded.range_json,
-            selection_range_json = excluded.selection_range_json,
-            parent_id = excluded.parent_id,
-            visibility_hint = excluded.visibility_hint,
-            doc_summary = excluded.doc_summary,
-            content_hash = excluded.content_hash,
-            semantic_hash = excluded.semantic_hash,
-            source = excluded.source,
-            confidence = excluded.confidence,
-            payload_json = excluded.payload_json,
-            scope = excluded.scope,
-            lexical_parent_id = excluded.lexical_parent_id,
-            last_indexed_at = excluded.last_indexed_at
-        """,
-        row,
-    )
+    except sqlite3.Error as e:
+        logger.error("Database error upserting node", extra={
+            "node_id": validated.id,
+            "error": str(e)
+        })
+        raise DatabaseError(f"Failed to upsert node {validated.id}") from e
 
 
-def upsert_nodes(conn: sqlite3.Connection, nodes: list[dict]) -> None:
+def upsert_nodes(conn: sqlite3.Connection, nodes: list[dict | SymbolNode]) -> None:
     """Insert or update multiple nodes.
 
     Args:

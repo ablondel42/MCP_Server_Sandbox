@@ -7,12 +7,16 @@ from repo_context.models.node import SymbolNode
 from repo_context.models.edge import Edge
 from repo_context.models.context import SymbolContext
 from repo_context.models.assessment import PlanAssessment
-from repo_context.models.edge_constants import (
+from repo_context.constants import (
+    Language,
+    VALID_SYMBOL_KINDS,
+    VALID_SCOPES,
+    VALID_EDGE_KINDS,
     EDGE_KIND_CONTAINS,
     EDGE_KIND_IMPORTS,
     EDGE_KIND_INHERITS,
     EDGE_KIND_SCOPE_PARENT,
-    VALID_EDGE_KINDS,
+    EDGE_KIND_REFERENCES,
 )
 
 __all__ = [
@@ -24,12 +28,16 @@ __all__ = [
     "Edge",
     "SymbolContext",
     "PlanAssessment",
+    "Language",
     "to_json",
     "from_json",
-    # Edge constants
+    # Constants
+    "VALID_SYMBOL_KINDS",
+    "VALID_SCOPES",
+    "VALID_EDGE_KINDS",
     "EDGE_KIND_CONTAINS",
     "EDGE_KIND_IMPORTS",
     "EDGE_KIND_INHERITS",
     "EDGE_KIND_SCOPE_PARENT",
-    "VALID_EDGE_KINDS",
+    "EDGE_KIND_REFERENCES",
 ]

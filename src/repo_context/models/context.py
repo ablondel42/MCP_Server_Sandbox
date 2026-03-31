@@ -1,12 +1,11 @@
 """Symbol context model."""
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class SymbolContext:
+class SymbolContext(BaseModel):
     """Context assembled around a focus symbol.
-    
+
     Attributes:
         focus_symbol: The symbol being inspected.
         structural_parent: The containing symbol in the code hierarchy (e.g., class for a method, module for a class).
@@ -20,14 +19,17 @@ class SymbolContext:
         freshness: Timestamps indicating when this context was last updated.
         confidence: Trust scores indicating the reliability of this context data.
     """
-    focus_symbol: dict
-    structural_parent: dict | None = None
-    structural_children: list[dict] = field(default_factory=list)
-    lexical_parent: dict | None = None
-    lexical_children: list[dict] = field(default_factory=list)
-    incoming_edges: list[dict] = field(default_factory=list)
-    outgoing_edges: list[dict] = field(default_factory=list)
-    file_siblings: list[dict] = field(default_factory=list)
-    structural_summary: dict = field(default_factory=dict)
-    freshness: dict = field(default_factory=dict)
-    confidence: dict = field(default_factory=dict)
+
+    model_config = {"frozen": False}  # Allow mutation for context assembly
+
+    focus_symbol: dict = Field(..., description="The symbol being inspected")
+    structural_parent: dict | None = Field(default=None)
+    structural_children: list[dict] = Field(default_factory=list)
+    lexical_parent: dict | None = Field(default=None)
+    lexical_children: list[dict] = Field(default_factory=list)
+    incoming_edges: list[dict] = Field(default_factory=list)
+    outgoing_edges: list[dict] = Field(default_factory=list)
+    file_siblings: list[dict] = Field(default_factory=list)
+    structural_summary: dict = Field(default_factory=dict)
+    freshness: dict = Field(default_factory=dict)
+    confidence: dict = Field(default_factory=dict)
