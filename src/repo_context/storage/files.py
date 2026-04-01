@@ -96,7 +96,7 @@ def list_files_for_repo(conn: sqlite3.Connection, repo_id: str) -> list[FileReco
 
 def delete_files_not_in_set(conn: sqlite3.Connection, repo_id: str, keep_paths: set[str]) -> None:
     """Delete file records for a repository that are not in the keep set.
-    
+
     Args:
         conn: SQLite connection.
         repo_id: Repository ID.
@@ -109,3 +109,23 @@ def delete_files_not_in_set(conn: sqlite3.Connection, repo_id: str, keep_paths: 
         """.format(",".join("?" * len(keep_paths))),
         (repo_id, *keep_paths),
     )
+
+
+def get_file_by_id(conn: sqlite3.Connection, file_id: str) -> dict | None:
+    """Get a file record by its ID.
+
+    Args:
+        conn: SQLite connection.
+        file_id: File ID (format: file:{path}).
+
+    Returns:
+        File dict or None if not found.
+    """
+    cursor = conn.execute(
+        "SELECT * FROM files WHERE id = ?",
+        (file_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return dict(row)

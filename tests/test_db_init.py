@@ -76,6 +76,6 @@ def test_initialize_database_idempotent(temp_db_path: Path) -> None:
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = list(cursor.fetchall())
-        assert len(tables) == 5  # repos, files, nodes, edges, index_runs
+        assert len(tables) == 6  # repos, files, nodes, edges, index_runs, reference_refresh
     finally:
         close_connection(conn)

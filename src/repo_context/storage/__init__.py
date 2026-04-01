@@ -3,7 +3,7 @@
 from repo_context.storage.db import get_connection, close_connection
 from repo_context.storage.migrations import initialize_database
 from repo_context.storage.repos import upsert_repo, get_repo_by_id
-from repo_context.storage.files import upsert_file, upsert_files, list_files_for_repo, delete_files_not_in_set
+from repo_context.storage.files import upsert_file, upsert_files, list_files_for_repo, delete_files_not_in_set, get_file_by_id
 from repo_context.storage.nodes import (
     upsert_node,
     upsert_nodes,
@@ -30,6 +30,10 @@ from repo_context.storage.edges import (
     row_to_edge,
 )
 from repo_context.storage.graph import replace_file_graph
+from repo_context.storage.reference_refresh import (
+    upsert_reference_refresh,
+    get_reference_refresh_state,
+)
 
 __all__ = [
     # Database
@@ -44,6 +48,7 @@ __all__ = [
     "upsert_files",
     "list_files_for_repo",
     "delete_files_not_in_set",
+    "get_file_by_id",
     # Nodes - row mapping
     "node_to_row",
     "row_to_node",
@@ -75,4 +80,7 @@ __all__ = [
     "delete_edges_for_file",
     # Graph
     "replace_file_graph",
+    # Reference refresh
+    "upsert_reference_refresh",
+    "get_reference_refresh_state",
 ]

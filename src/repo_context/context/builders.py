@@ -13,6 +13,7 @@ from repo_context.graph import (
     get_outgoing_edges,
     get_incoming_edges,
     get_symbols_for_file,
+    build_reference_stats,
 )
 from repo_context.context.summaries import build_structural_summary, build_confidence
 from repo_context.context.freshness import build_freshness
@@ -130,14 +131,17 @@ def build_symbol_context(conn: sqlite3.Connection, node_id: str) -> SymbolContex
         outgoing_edges=outgoing_edges,
         file_siblings=file_siblings,
     )
-    
+
     # Step 9: Build structural summary
     context.structural_summary = build_structural_summary(context)
-    
+
     # Step 10: Build freshness
     context.freshness = build_freshness(context, focus_node)
-    
+
     # Step 11: Build confidence
     context.confidence = build_confidence(context)
-    
+
+    # Step 12: Build reference summary
+    context.reference_summary = build_reference_stats(conn, node_id)
+
     return context

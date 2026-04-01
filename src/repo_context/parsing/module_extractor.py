@@ -66,14 +66,14 @@ def extract_module_node(
         "name": name,
         "qualified_name": qualified_name,
         "uri": file_record.uri,
-        "range_json": json.dumps({
+        "range_json": {
             "start": {"line": 0, "character": 0},
             "end": {"line": last_line, "character": 0}
-        }),
-        "selection_range_json": json.dumps({
+        },
+        "selection_range_json": {
             "start": {"line": 0, "character": 0},
             "end": {"line": 0, "character": 0}
-        }),
+        },
         "parent_id": None,
         "visibility_hint": "module",
         "doc_summary": get_doc_summary(tree),

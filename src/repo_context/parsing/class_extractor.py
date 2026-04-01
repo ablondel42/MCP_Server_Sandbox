@@ -25,6 +25,7 @@ def extract_class_nodes(
     duplicate_tracker: DuplicateTracker,
     parent_id: Optional[str] = None,
     parent_qualified_name: Optional[str] = None,
+    file_text: str = "",
 ) -> tuple[list[dict], list[dict]]:
     """Extract class nodes from class definitions.
 
@@ -102,8 +103,8 @@ def extract_class_nodes(
             "name": class_name,
             "qualified_name": qualified_name,
             "uri": file_record.uri,
-            "range_json": json.dumps(make_range(node), sort_keys=True) if make_range(node) else None,
-            "selection_range_json": json.dumps(make_name_selection_range(node), sort_keys=True) if make_name_selection_range(node) else None,
+            "range_json": make_range(node) if make_range(node) else None,
+            "selection_range_json": make_name_selection_range(node) if make_name_selection_range(node) else None,
             "parent_id": lexical_parent_id,
             "visibility_hint": visibility_hint,
             "doc_summary": get_doc_summary(node),
@@ -125,7 +126,7 @@ def extract_class_nodes(
 
         # Extract methods from class body and add to nodes
         method_nodes, method_contains_edges = _extract_methods_from_class(
-            repo_id, file_record, node_id, qualified_name, node, scope_tracker, duplicate_tracker, module_path
+            repo_id, file_record, node_id, qualified_name, node, scope_tracker, duplicate_tracker, module_path, file_text
         )
         nodes.extend(method_nodes)
         contains_edges.extend(method_contains_edges)
@@ -150,6 +151,7 @@ def _extract_methods_from_class(
     scope_tracker: ScopeTracker,
     duplicate_tracker: DuplicateTracker,
     module_path: str,
+    file_text: str,
 ) -> tuple[list[dict], list[dict]]:
     """Extract methods from a class body.
 
@@ -186,6 +188,7 @@ def _extract_methods_from_class(
                     scope_tracker=scope_tracker,
                     duplicate_tracker=duplicate_tracker,
                     module_path=module_path,
+                    file_text=file_text,
                 )
                 methods.extend(method_nodes)
                 

@@ -62,7 +62,7 @@ def extract_file_graph(
 
     # Step 5: Extract top-level class nodes with scope tracking
     class_nodes, class_contains_edges = extract_class_nodes(
-        repo_id, file_record, module_node_id, module_path, tree, scope_tracker, duplicate_tracker
+        repo_id, file_record, module_node_id, module_path, tree, scope_tracker, duplicate_tracker, file_text=file_text
     )
     nodes.extend(class_nodes)
     edges.extend(class_contains_edges)
@@ -87,7 +87,7 @@ def extract_file_graph(
 
     # Step 8: Extract top-level callable nodes (functions, async functions) with scope tracking
     top_level_callables = _extract_top_level_callables(
-        repo_id, file_record, module_node_id, module_path, tree, scope_tracker, duplicate_tracker
+        repo_id, file_record, module_node_id, module_path, tree, scope_tracker, duplicate_tracker, file_text
     )
     nodes.extend(top_level_callables)
 
@@ -147,6 +147,7 @@ def _extract_class_methods(
     scope_tracker: ScopeTracker,
     duplicate_tracker: DuplicateTracker,
     module_path: str,
+    file_text: str,
 ) -> list[dict]:
     """Extract method nodes from a class AST node.
 
@@ -177,6 +178,7 @@ def _extract_class_methods(
         scope_tracker=scope_tracker,
         duplicate_tracker=duplicate_tracker,
         module_path=module_path,
+        file_text=file_text,
     )
 
 
@@ -188,6 +190,7 @@ def _extract_top_level_callables(
     tree: ast.Module,
     scope_tracker: ScopeTracker,
     duplicate_tracker: DuplicateTracker,
+    file_text: str,
 ) -> list[dict]:
     """Extract top-level function and async function nodes.
 
@@ -217,6 +220,7 @@ def _extract_top_level_callables(
         scope_tracker=scope_tracker,
         duplicate_tracker=duplicate_tracker,
         module_path=module_path,
+        file_text=file_text,
     )
 
 

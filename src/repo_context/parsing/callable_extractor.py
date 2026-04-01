@@ -24,6 +24,7 @@ def extract_callable_nodes(
     scope_tracker: ScopeTracker,
     duplicate_tracker: DuplicateTracker,
     module_path: str,
+    file_text: str,
 ) -> list[dict]:
     """Extract callable nodes from function/method definitions with nested scope support.
 
@@ -102,6 +103,10 @@ def extract_callable_nodes(
         else:
             visibility_hint = "public"
 
+        # Get source line for precise name positioning
+        lines = file_text.splitlines()
+        source_line = lines[node.lineno - 1] if node.lineno and node.lineno <= len(lines) else None
+        
         extracted.append({
             "id": node_id,
             "repo_id": repo_id,
@@ -111,8 +116,8 @@ def extract_callable_nodes(
             "name": callable_name,
             "qualified_name": qualified_name,
             "uri": file_record.uri,
-            "range_json": json.dumps(make_range(node), sort_keys=True) if make_range(node) else None,
-            "selection_range_json": json.dumps(make_name_selection_range(node), sort_keys=True) if make_name_selection_range(node) else None,
+            "range_json": make_range(node) if make_range(node) else None,
+            "selection_range_json": make_name_selection_range(node, source_line) if make_name_selection_range(node, source_line) else None,
             "parent_id": lexical_parent_id,
             "visibility_hint": visibility_hint,
             "doc_summary": get_doc_summary(node),
@@ -135,7 +140,7 @@ def extract_callable_nodes(
 
         # Recursively extract nested declarations from function body
         nested_nodes = _extract_nested_declarations(
-            repo_id, file_record, node_id, qualified_name, node, scope_tracker, duplicate_tracker, module_path
+            repo_id, file_record, node_id, qualified_name, node, scope_tracker, duplicate_tracker, module_path, file_text
         )
         extracted.extend(nested_nodes)
 
@@ -151,6 +156,7 @@ def _extract_nested_declarations(
     scope_tracker: ScopeTracker,
     duplicate_tracker: DuplicateTracker,
     module_path: str,
+    file_text: str,
 ) -> list[dict]:
     """Extract nested declarations from a function body.
     
@@ -204,6 +210,7 @@ def _extract_nested_declarations(
                     scope_tracker=scope_tracker,
                     duplicate_tracker=duplicate_tracker,
                     module_path=module_path,
+                    file_text=file_text,
                 ))
             elif isinstance(stmt, ast.ClassDef):
                 # Extract nested class
@@ -217,6 +224,7 @@ def _extract_nested_declarations(
                     duplicate_tracker=duplicate_tracker,
                     parent_id=parent_id,
                     parent_qualified_name=func_qualified_name,
+                    file_text=file_text,
                 )
                 nested.extend(nested_class_nodes)
 

@@ -19,11 +19,13 @@ from repo_context.storage import (
     get_node_by_id,
     get_node_by_qualified_name,
 )
-from repo_context.graph import get_repo_graph_stats, find_symbols_by_name
+from repo_context.graph import get_repo_graph_stats, find_symbols_by_name, build_reference_stats, list_reference_edges_for_target, list_referenced_by
 from repo_context.context import build_symbol_context
 from repo_context.models import SymbolContext
 from repo_context.parsing.scanner import scan_repository
 from repo_context.parsing.pipeline import extract_file_graph
+from repo_context.lsp import PyrightLspClient
+from repo_context.lsp.references import enrich_references_for_symbol
 
 
 def cmd_init_db(args: argparse.Namespace) -> int:
@@ -50,9 +52,9 @@ def cmd_init_db(args: argparse.Namespace) -> int:
 
 
 def cmd_run_full(args: argparse.Namespace) -> int:
-    """Initialize database, scan repository, and extract AST.
+    """Initialize database, scan repository, extract AST, and refresh LSP references.
 
-    This is the full pipeline: init-db + scan + extract-ast.
+    This is the full pipeline: init-db + scan + extract-ast + references.
     Defaults to current working directory if no path is provided.
 
     Args:
@@ -91,6 +93,79 @@ def cmd_run_full(args: argparse.Namespace) -> int:
                 failures.append((file_record.file_path, str(exc)))
 
         conn.commit()
+        
+        # Step 4: Refresh LSP references for all symbols
+        print("Refreshing LSP references for all symbols...")
+        lsp_total_refs = 0
+        lsp_success_count = 0
+        lsp_error_count = 0
+        lsp_available = False
+        
+        try:
+            # Get all non-module symbols
+            symbols = list_nodes_for_repo(conn, repo.id)
+            refreshable = [s for s in symbols if s['kind'] != 'module']
+            
+            print(f"  Found {len(refreshable)} symbols to refresh")
+            
+            with PyrightLspClient() as client:
+                # Open all Python files first for better cross-file detection
+                python_files = [f for f in file_records if f.file_path.endswith('.py')]
+                print(f"  Opening {len(python_files)} Python files...")
+                for file_record in python_files:
+                    file_path = Path(repo_path) / file_record.file_path
+                    if file_path.exists():
+                        try:
+                            text = file_path.read_text(encoding='utf-8')
+                            client.did_open(file_record.uri, text)
+                        except Exception:
+                            pass
+                
+                # Refresh references for each symbol
+                total_refs = 0
+                success_count = 0
+                error_count = 0
+                
+                print(f"  Refreshing references...")
+                for i, symbol in enumerate(refreshable):
+                    try:
+                        # Build target symbol dict with required fields
+                        file_rec = next((f for f in file_records if f.id == symbol['file_id']), None)
+                        if file_rec is None:
+                            continue
+                            
+                        target_symbol = {
+                            'id': symbol['id'],
+                            'repo_id': symbol['repo_id'],
+                            'file_id': symbol['file_id'],
+                            'file_path': file_rec.file_path,
+                            'uri': symbol['uri'],
+                            'qualified_name': symbol['qualified_name'],
+                            'kind': symbol['kind'],
+                            'scope': symbol.get('scope'),
+                            'range_json': symbol.get('range_json'),
+                            'selection_range_json': symbol.get('selection_range_json'),
+                            'repo_root': str(Path(repo_path).absolute()),
+                        }
+                        
+                        stats = enrich_references_for_symbol(conn, client, target_symbol, open_all_files=False)
+                        lsp_total_refs += stats['reference_count']
+                        lsp_success_count += 1
+                        
+                    except Exception as e:
+                        lsp_error_count += 1
+                
+                lsp_available = True
+                print(f"  Symbols processed: {lsp_success_count}/{len(refreshable)}")
+                print(f"  Total references: {lsp_total_refs}")
+                if lsp_error_count > 0:
+                    print(f"  Errors: {lsp_error_count}")
+                    
+        except FileNotFoundError:
+            print("  Warning: LSP server (pyright) not found, skipping reference refresh", file=sys.stderr)
+        except Exception as e:
+            print(f"  Warning: LSP reference refresh failed: {e}", file=sys.stderr)
+        
         close_connection(conn)
 
         # Print summary
@@ -114,6 +189,10 @@ def cmd_run_full(args: argparse.Namespace) -> int:
             print(f"  Files found: {len(file_records)}")
             print(f"  Nodes extracted: {total_nodes}")
             print(f"  Edges extracted: {total_edges}")
+            if lsp_available:
+                print(f"  LSP references: {lsp_total_refs} references for {lsp_success_count} symbols")
+                if lsp_error_count > 0:
+                    print(f"  LSP errors: {lsp_error_count}")
             if failures:
                 print(f"  Failures: {len(failures)}")
                 for file_path, error in failures[:5]:
@@ -756,6 +835,188 @@ def cmd_symbol_references(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_refresh_references(args: argparse.Namespace) -> int:
+    """Refresh LSP references for a symbol.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    from repo_context.logging_config import get_logger
+    logger = get_logger("cli.refresh_references")
+    
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    node_id = args.node_id
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            # Find the symbol
+            symbol = get_node_by_id(conn, node_id)
+            if symbol is None:
+                logger.error(f"Symbol not found: {node_id}")
+                return 1
+
+            # Get file record to find repo root
+            from repo_context.storage.files import get_file_by_id
+            file_record = get_file_by_id(conn, symbol["file_id"])
+            if file_record is None:
+                logger.error(f"File not found for symbol: {symbol['file_id']}")
+                return 1
+
+            # Get repo root from file path
+            from pathlib import Path
+            file_path = Path(file_record["file_path"])
+            repo_root = str(Path.cwd())  # Use current working directory as repo root
+
+            # Enrich references - build proper symbol dict with required fields
+            target_symbol = {
+                "id": symbol["id"],
+                "repo_id": symbol["repo_id"],
+                "file_id": symbol["file_id"],
+                "file_path": file_record["file_path"],
+                "uri": symbol["uri"],
+                "qualified_name": symbol["qualified_name"],
+                "kind": symbol["kind"],
+                "scope": symbol.get("scope"),
+                "range_json": symbol.get("range_json"),
+                "selection_range_json": symbol.get("selection_range_json"),
+                "repo_root": repo_root,
+            }
+
+            with PyrightLspClient() as client:
+                stats = enrich_references_for_symbol(conn, client, target_symbol, open_all_files=True)
+
+            logger.info(f"References refreshed for: {symbol['qualified_name']}")
+            logger.info(f"  Reference count: {stats['reference_count']}")
+            logger.info(f"  Referencing files: {stats['referencing_file_count']}")
+            logger.info(f"  Referencing modules: {stats['referencing_module_count']}")
+            logger.info(f"  Available: {stats['available']}")
+            logger.info(f"  Last refreshed: {stats['last_refreshed_at']}")
+
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        logger.exception(f"Error refreshing references: {exc}")
+        return 1
+
+
+def cmd_show_references(args: argparse.Namespace) -> int:
+    """Show stored incoming references for a symbol.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    node_id = args.node_id
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            # Get symbol
+            symbol = get_node_by_id(conn, node_id)
+            if symbol is None:
+                print(f"Error: Symbol not found: {node_id}", file=sys.stderr)
+                return 1
+
+            # Get reference stats
+            stats = build_reference_stats(conn, node_id)
+
+            if args.json:
+                output = {
+                    "symbol": symbol,
+                    "stats": stats,
+                }
+                print(json.dumps(output, indent=2))
+            else:
+                print(f"Symbol: {symbol['qualified_name']}")
+                print(f"Reference count: {stats['reference_count']}")
+                print(f"Referencing files: {stats['referencing_file_count']}")
+                print(f"Referencing modules: {stats['referencing_module_count']}")
+                print(f"Available: {stats['available']}")
+                print(f"Last refreshed: {stats['last_refreshed_at']}")
+
+                if stats["available"]:
+                    edges = list_reference_edges_for_target(conn, node_id)
+                    if edges:
+                        print(f"\nReferences ({len(edges)}):")
+                        for edge in edges[:10]:
+                            range_data = edge['evidence_range_json']
+                            if isinstance(range_data, str):
+                                range_data = json.loads(range_data)
+                            line = range_data['start']['line']
+                            print(f"  <- {edge['from_id']} at {edge['evidence_uri']}:{line}")
+                        if len(edges) > 10:
+                            print(f"  ... and {len(edges) - 10} more")
+                    else:
+                        print("\n  (no references found)")
+
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        print(f"Error showing references: {exc}", file=sys.stderr)
+        return 1
+
+
+def cmd_show_referenced_by(args: argparse.Namespace) -> int:
+    """Show symbols that reference this symbol (reverse lookup).
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    node_id = args.node_id
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            # Get symbol
+            symbol = get_node_by_id(conn, node_id)
+            if symbol is None:
+                print(f"Error: Symbol not found: {node_id}", file=sys.stderr)
+                return 1
+
+            # Get reverse references
+            referenced_by = list_referenced_by(conn, node_id)
+
+            if args.json:
+                output = {
+                    "symbol": symbol,
+                    "referenced_by": referenced_by,
+                }
+                print(json.dumps(output, indent=2))
+            else:
+                print(f"Symbol: {symbol['qualified_name']}")
+                print(f"Referenced by ({len(referenced_by)} symbols):")
+                if referenced_by:
+                    for ref in referenced_by[:10]:
+                        print(f"  - {ref['qualified_name']} ({ref['kind']})")
+                    if len(referenced_by) > 10:
+                        print(f"  ... and {len(referenced_by) - 10} more")
+                else:
+                    print("  (none)")
+
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        print(f"Error showing referenced-by: {exc}", file=sys.stderr)
+        return 1
+
+
 def cmd_list_nodes(args: argparse.Namespace) -> int:
     """List nodes for a repository.
 
@@ -1086,6 +1347,58 @@ def main() -> int:
         help="Output as JSON",
     )
     show_parser.set_defaults(func=cmd_show_node)
+
+    # refresh-references command
+    refresh_parser = subparsers.add_parser("refresh-references", help="Refresh LSP references for a symbol")
+    refresh_parser.add_argument(
+        "node_id",
+        type=str,
+        help="Symbol ID to refresh",
+    )
+    refresh_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    refresh_parser.set_defaults(func=cmd_refresh_references)
+
+    # show-references command
+    show_refs_parser = subparsers.add_parser("show-references", help="Show stored incoming references for a symbol")
+    show_refs_parser.add_argument(
+        "node_id",
+        type=str,
+        help="Symbol ID",
+    )
+    show_refs_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    show_refs_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    show_refs_parser.set_defaults(func=cmd_show_references)
+
+    # show-referenced-by command
+    show_refby_parser = subparsers.add_parser("show-referenced-by", help="Show symbols that reference this symbol")
+    show_refby_parser.add_argument(
+        "node_id",
+        type=str,
+        help="Symbol ID",
+    )
+    show_refby_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    show_refby_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    show_refby_parser.set_defaults(func=cmd_show_referenced_by)
 
     args = parser.parse_args()
     return args.func(args)

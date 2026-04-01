@@ -18,6 +18,7 @@ class SymbolContext(BaseModel):
         structural_summary: Statistics about this symbol's structural relationships.
         freshness: Timestamps indicating when this context was last updated.
         confidence: Trust scores indicating the reliability of this context data.
+        reference_summary: Statistics about references to this symbol (from LSP enrichment).
     """
 
     model_config = {"frozen": False}  # Allow mutation for context assembly
@@ -33,3 +34,4 @@ class SymbolContext(BaseModel):
     structural_summary: dict = Field(default_factory=dict)
     freshness: dict = Field(default_factory=dict)
     confidence: dict = Field(default_factory=dict)
+    reference_summary: dict = Field(default_factory=dict)

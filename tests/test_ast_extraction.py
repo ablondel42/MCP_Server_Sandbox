@@ -151,7 +151,7 @@ def test_callable_extraction_top_level(simple_package_fixture: Path) -> None:
     top_level_funcs = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
     callables = extract_callable_nodes(
-        "repo:test", file_record, "sym:repo:test:module:services", "services", top_level_funcs, scope_tracker, duplicate_tracker, "services"
+        "repo:test", file_record, "sym:repo:test:module:services", "services", top_level_funcs, scope_tracker, duplicate_tracker, "services", file_text
     )
 
     # Should find create_service (function) and fetch_data (async_function)
@@ -188,7 +188,7 @@ def test_callable_extraction_methods(simple_package_fixture: Path) -> None:
     methods = [n for n in auth_class.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
     callables = extract_callable_nodes(
-        "repo:test", file_record, "sym:repo:test:class:services.AuthService", "services.AuthService", methods, scope_tracker, duplicate_tracker, "services"
+        "repo:test", file_record, "sym:repo:test:class:services.AuthService", "services.AuthService", methods, scope_tracker, duplicate_tracker, "services", file_text
     )
 
     # Should find login and logout methods

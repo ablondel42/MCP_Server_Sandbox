@@ -96,6 +96,15 @@ CREATE TABLE IF NOT EXISTS index_runs (
     error_message TEXT
 );
 
+-- Reference refresh state table (Phase 6)
+CREATE TABLE IF NOT EXISTS reference_refresh (
+    target_symbol_id TEXT PRIMARY KEY,
+    available INTEGER NOT NULL DEFAULT 0,
+    last_refreshed_at TEXT,
+    refresh_status TEXT,
+    error_code TEXT
+);
+
 -- Indexes for nodes table
 CREATE INDEX IF NOT EXISTS idx_nodes_repo_id ON nodes(repo_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_file_id ON nodes(file_id);
@@ -118,4 +127,7 @@ CREATE INDEX IF NOT EXISTS idx_files_repo_id ON files(repo_id);
 -- Indexes for index_runs table
 CREATE INDEX IF NOT EXISTS idx_index_runs_repo_id ON index_runs(repo_id);
 CREATE INDEX IF NOT EXISTS idx_index_runs_status ON index_runs(status);
+
+-- Indexes for reference_refresh table
+CREATE INDEX IF NOT EXISTS idx_reference_refresh_available ON reference_refresh(available);
 """

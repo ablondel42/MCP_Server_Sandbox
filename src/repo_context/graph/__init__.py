@@ -15,6 +15,13 @@ from repo_context.graph.queries import (
     CALLABLE_KINDS,
     LOCAL_CALLABLE_KINDS,
 )
+from repo_context.graph.references import (
+    list_reference_edges_for_target,
+    list_referenced_by,
+    list_references_from_symbol,
+    build_reference_stats,
+    get_reference_refresh_state,
+)
 
 __all__ = [
     "get_symbol",
@@ -30,4 +37,10 @@ __all__ = [
     "get_repo_graph_stats",
     "CALLABLE_KINDS",
     "LOCAL_CALLABLE_KINDS",
+    # Reference queries
+    "list_reference_edges_for_target",
+    "list_referenced_by",
+    "list_references_from_symbol",
+    "build_reference_stats",
+    "get_reference_refresh_state",
 ]

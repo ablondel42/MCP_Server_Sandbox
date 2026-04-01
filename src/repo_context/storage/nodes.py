@@ -66,12 +66,12 @@ def _validate_and_normalize_node(node: dict | SymbolNode) -> SymbolNode:
 
 def node_to_row(node: dict) -> dict:
     """Convert node dictionary to database row values.
-    
-    Serializes JSON fields and prepares all values for storage.
-    
+
+    Note: Pydantic model already serializes JSON fields, so we don't double-serialize.
+
     Args:
         node: Node dictionary with all fields.
-        
+
     Returns:
         Dictionary suitable for database insertion.
     """
@@ -84,8 +84,8 @@ def node_to_row(node: dict) -> dict:
         "name": node["name"],
         "qualified_name": node["qualified_name"],
         "uri": node["uri"],
-        "range_json": _serialize_json(node.get("range_json")),
-        "selection_range_json": _serialize_json(node.get("selection_range_json")),
+        "range_json": node.get("range_json"),  # Already serialized by Pydantic
+        "selection_range_json": node.get("selection_range_json"),  # Already serialized by Pydantic
         "parent_id": node.get("parent_id"),
         "visibility_hint": node.get("visibility_hint"),
         "doc_summary": node.get("doc_summary"),
@@ -93,7 +93,7 @@ def node_to_row(node: dict) -> dict:
         "semantic_hash": node["semantic_hash"],
         "source": node["source"],
         "confidence": node["confidence"],
-        "payload_json": _serialize_json(node.get("payload_json", {})),
+        "payload_json": node.get("payload_json"),  # Already serialized by Pydantic
         "scope": node.get("scope"),
         "lexical_parent_id": node.get("lexical_parent_id"),
         "last_indexed_at": node.get("last_indexed_at"),
