@@ -37,9 +37,9 @@ def setup_logging(
     root_logger = logging.getLogger("repo_context")
     root_logger.setLevel(getattr(logging, level.upper()))
     
-    # Create formatter
+    # Create formatter with source location
     formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d (%(funcName)s): %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     
