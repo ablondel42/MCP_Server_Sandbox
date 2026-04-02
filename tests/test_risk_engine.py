@@ -42,6 +42,7 @@ from repo_context.graph.risk_rules import (
     ISSUE_STALE_CONTEXT,
     ISSUE_LOW_CONFIDENCE_MATCH,
     ISSUE_HIGH_REFERENCE_COUNT,
+    ISSUE_MODERATE_REFERENCE_COUNT,
     ISSUE_CROSS_FILE_IMPACT,
     ISSUE_CROSS_MODULE_IMPACT,
     ISSUE_PUBLIC_SURFACE_CHANGE,
@@ -400,6 +401,39 @@ def test_detect_issues_empty_facts():
     assert issues == []
 
 
+def test_detect_issues_moderate_reference_count():
+    """Test moderate_reference_count issue detection (5-14 refs)."""
+    facts = RiskFacts(
+        reference_counts={"sym:1": 8},
+        reference_availability={"sym:1": True}
+    )
+    issues = detect_risk_issues(facts)
+    assert ISSUE_MODERATE_REFERENCE_COUNT in issues
+    assert ISSUE_HIGH_REFERENCE_COUNT not in issues
+
+
+def test_detect_issues_high_reference_count():
+    """Test high_reference_count issue detection (15+ refs)."""
+    facts = RiskFacts(
+        reference_counts={"sym:1": 20},
+        reference_availability={"sym:1": True}
+    )
+    issues = detect_risk_issues(facts)
+    assert ISSUE_HIGH_REFERENCE_COUNT in issues
+    assert ISSUE_MODERATE_REFERENCE_COUNT not in issues
+
+
+def test_detect_issues_reference_count_unavailable_data():
+    """Test that unavailable reference data doesn't trigger count issues."""
+    facts = RiskFacts(
+        reference_counts={"sym:1": 20},
+        reference_availability={"sym:1": False}
+    )
+    issues = detect_risk_issues(facts)
+    assert ISSUE_HIGH_REFERENCE_COUNT not in issues
+    assert ISSUE_MODERATE_REFERENCE_COUNT not in issues
+
+
 def test_detect_issues_stale_context():
     """Test stale_context issue detection."""
     facts = RiskFacts(stale_symbols=["sym:stale"])
@@ -460,12 +494,26 @@ def test_score_risk_single_issue():
     assert score == 20
 
 
+def test_score_risk_moderate_refs():
+    """Test scoring with moderate reference count."""
+    facts = RiskFacts()
+    score = score_risk([ISSUE_MODERATE_REFERENCE_COUNT], facts)
+    assert score == 15
+
+
+def test_score_risk_high_refs():
+    """Test scoring with high reference count."""
+    facts = RiskFacts()
+    score = score_risk([ISSUE_HIGH_REFERENCE_COUNT], facts)
+    assert score == 30
+
+
 def test_score_risk_multiple_issues():
     """Test scoring with multiple issues."""
     facts = RiskFacts()
-    issues = [ISSUE_STALE_CONTEXT, ISSUE_PUBLIC_SURFACE_CHANGE]
+    issues = [ISSUE_STALE_CONTEXT, ISSUE_PUBLIC_SURFACE_CHANGE, ISSUE_MODERATE_REFERENCE_COUNT]
     score = score_risk(issues, facts)
-    assert score == 35  # 20 + 15
+    assert score == 55  # 20 + 20 + 15
 
 
 def test_score_risk_clamped_to_100():
@@ -474,13 +522,13 @@ def test_score_risk_clamped_to_100():
     issues = [
         ISSUE_STALE_CONTEXT,  # 20
         ISSUE_LOW_CONFIDENCE_MATCH,  # 20
-        ISSUE_HIGH_REFERENCE_COUNT,  # 20
-        ISSUE_CROSS_MODULE_IMPACT,  # 15
-        ISSUE_PUBLIC_SURFACE_CHANGE,  # 15
-        ISSUE_MULTI_MODULE_CHANGE,  # 15
+        ISSUE_HIGH_REFERENCE_COUNT,  # 30
+        ISSUE_CROSS_MODULE_IMPACT,  # 25
+        ISSUE_PUBLIC_SURFACE_CHANGE,  # 20
+        ISSUE_MULTI_MODULE_CHANGE,  # 20
     ]
     score = score_risk(issues, facts)
-    assert score == 100  # Would be 105, clamped to 100
+    assert score == 100  # Would be 135, clamped to 100
 
 
 def test_score_risk_local_scope_mitigation():

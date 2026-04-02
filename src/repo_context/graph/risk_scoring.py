@@ -8,6 +8,7 @@ from repo_context.graph.risk_rules import (
     ISSUE_STALE_CONTEXT,
     ISSUE_LOW_CONFIDENCE_MATCH,
     ISSUE_HIGH_REFERENCE_COUNT,
+    ISSUE_MODERATE_REFERENCE_COUNT,
     ISSUE_CROSS_FILE_IMPACT,
     ISSUE_CROSS_MODULE_IMPACT,
     ISSUE_PUBLIC_SURFACE_CHANGE,
@@ -22,18 +23,26 @@ DECISION_SAFE_ENOUGH = "safe_enough"
 DECISION_REVIEW_REQUIRED = "review_required"
 DECISION_HIGH_RISK = "high_risk"
 
-# Issue weights
+# Issue weights - scaled by impact severity
 ISSUE_WEIGHTS = {
+    # Context quality issues
     ISSUE_STALE_CONTEXT: 20,
     ISSUE_LOW_CONFIDENCE_MATCH: 20,
-    ISSUE_HIGH_REFERENCE_COUNT: 20,
-    ISSUE_CROSS_FILE_IMPACT: 10,
-    ISSUE_CROSS_MODULE_IMPACT: 15,
-    ISSUE_PUBLIC_SURFACE_CHANGE: 15,
-    ISSUE_INHERITANCE_RISK: 10,
-    ISSUE_MULTI_FILE_CHANGE: 10,
-    ISSUE_MULTI_MODULE_CHANGE: 15,
     ISSUE_REFERENCE_DATA_UNAVAILABLE: 15,
+    
+    # Reference count issues - scaled by usage level
+    ISSUE_HIGH_REFERENCE_COUNT: 30,      # 15+ references (heavy usage)
+    ISSUE_MODERATE_REFERENCE_COUNT: 15,  # 5-14 references (moderate usage)
+    
+    # Impact spread issues
+    ISSUE_CROSS_FILE_IMPACT: 20,         # References from multiple files
+    ISSUE_CROSS_MODULE_IMPACT: 25,       # References from multiple modules
+    ISSUE_PUBLIC_SURFACE_CHANGE: 20,     # Public API affected
+    
+    # Inheritance and structural issues
+    ISSUE_INHERITANCE_RISK: 15,
+    ISSUE_MULTI_FILE_CHANGE: 15,         # Targets span multiple files
+    ISSUE_MULTI_MODULE_CHANGE: 20,       # Targets span multiple modules
 }
 
 # Local-scope mitigation (applied if touches_local_scope_only and no public_surface_change)

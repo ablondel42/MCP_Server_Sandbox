@@ -10,6 +10,7 @@ from repo_context.graph.risk_types import RiskFacts
 ISSUE_STALE_CONTEXT = "stale_context"
 ISSUE_LOW_CONFIDENCE_MATCH = "low_confidence_match"
 ISSUE_HIGH_REFERENCE_COUNT = "high_reference_count"
+ISSUE_MODERATE_REFERENCE_COUNT = "moderate_reference_count"
 ISSUE_CROSS_FILE_IMPACT = "cross_file_impact"
 ISSUE_CROSS_MODULE_IMPACT = "cross_module_impact"
 ISSUE_PUBLIC_SURFACE_CHANGE = "public_surface_change"
@@ -22,6 +23,7 @@ ALL_ISSUE_CODES = [
     ISSUE_STALE_CONTEXT,
     ISSUE_LOW_CONFIDENCE_MATCH,
     ISSUE_HIGH_REFERENCE_COUNT,
+    ISSUE_MODERATE_REFERENCE_COUNT,
     ISSUE_CROSS_FILE_IMPACT,
     ISSUE_CROSS_MODULE_IMPACT,
     ISSUE_PUBLIC_SURFACE_CHANGE,
@@ -51,11 +53,22 @@ def detect_risk_issues(facts: RiskFacts) -> list[str]:
     if facts.low_confidence_symbols or facts.low_confidence_edges:
         issues.append(ISSUE_LOW_CONFIDENCE_MATCH)
 
-    # high_reference_count: any target has >= 10 references (availability=True)
+    # Reference count issues - scaled by actual count
+    # Check for heavy usage first (15+), then moderate (5+)
+    has_heavy_refs = False
+    has_moderate_refs = False
+    
     for symbol_id, count in facts.reference_counts.items():
-        if count >= 10 and facts.reference_availability.get(symbol_id, False):
-            issues.append(ISSUE_HIGH_REFERENCE_COUNT)
+        if count >= 15 and facts.reference_availability.get(symbol_id, False):
+            has_heavy_refs = True
             break
+        elif count >= 5 and facts.reference_availability.get(symbol_id, False):
+            has_moderate_refs = True
+    
+    if has_heavy_refs:
+        issues.append(ISSUE_HIGH_REFERENCE_COUNT)
+    elif has_moderate_refs:
+        issues.append(ISSUE_MODERATE_REFERENCE_COUNT)
 
     # cross_file_impact: facts.cross_file_impact is True
     if facts.cross_file_impact:
