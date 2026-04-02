@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from repo_context.config import get_config
+from repo_context.logging_config import get_logger
 from repo_context.storage import (
     get_connection,
     close_connection,
@@ -19,13 +20,26 @@ from repo_context.storage import (
     get_node_by_id,
     get_node_by_qualified_name,
 )
-from repo_context.graph import get_repo_graph_stats, find_symbols_by_name, build_reference_stats, list_reference_edges_for_target, list_referenced_by
+from repo_context.graph import (
+    get_repo_graph_stats,
+    find_symbols_by_name,
+    build_reference_stats,
+    list_reference_edges_for_target,
+    list_referenced_by,
+    analyze_symbol_risk,
+    analyze_target_set_risk,
+    DECISION_SAFE_ENOUGH,
+    DECISION_REVIEW_REQUIRED,
+    DECISION_HIGH_RISK,
+)
 from repo_context.context import build_symbol_context
 from repo_context.models import SymbolContext
 from repo_context.parsing.scanner import scan_repository
 from repo_context.parsing.pipeline import extract_file_graph
 from repo_context.lsp import PyrightLspClient
 from repo_context.lsp.references import enrich_references_for_symbol
+
+logger = get_logger("cli.main")
 
 
 def cmd_init_db(args: argparse.Namespace) -> int:
@@ -1067,11 +1081,14 @@ def cmd_show_node(args: argparse.Namespace) -> int:
         conn = get_connection(db_path)
         try:
             node = get_node_by_id(conn, node_id)
-            
+
             if node is None:
+                logger.error("Node not found", extra={"node_id": node_id})
                 print(f"Error: Node not found: {node_id}", file=sys.stderr)
                 return 1
-            
+
+            logger.info("Node details retrieved", extra={"node_id": node_id})
+
             if args.json:
                 print(json.dumps(node, indent=2))
             else:
@@ -1083,13 +1100,139 @@ def cmd_show_node(args: argparse.Namespace) -> int:
                 print(f"  Scope: {node.get('scope', 'N/A')}")
                 print(f"  Parent ID: {node.get('parent_id', 'N/A')}")
                 print(f"  Lexical Parent ID: {node.get('lexical_parent_id', 'N/A')}")
-            
+
             return 0
         finally:
             close_connection(conn)
     except Exception as exc:
-        print(f"Error showing node: {exc}", file=sys.stderr)
-        return 1
+        logger.exception("cmd_show_node: Failed to show node")
+        raise
+
+
+def cmd_risk_symbol(args: argparse.Namespace) -> int:
+    """Analyze risk for a single symbol.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    symbol_id = args.symbol_id
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            result = analyze_symbol_risk(conn, symbol_id)
+
+            logger.info("Symbol risk analyzed", extra={
+                "symbol_id": symbol_id,
+                "risk_score": result.risk_score,
+                "decision": result.decision,
+                "issues": len(result.issues)
+            })
+
+            if args.json:
+                output = {
+                    "symbol_id": symbol_id,
+                    "risk_score": result.risk_score,
+                    "decision": result.decision,
+                    "issues": result.issues,
+                    "facts": {
+                        "target_count": result.facts.target_count,
+                        "symbol_kinds": list(result.facts.symbol_kinds),
+                        "reference_counts": result.facts.reference_counts,
+                        "touches_public_surface": result.facts.touches_public_surface,
+                        "cross_file_impact": result.facts.cross_file_impact,
+                        "cross_module_impact": result.facts.cross_module_impact,
+                        "inheritance_involved": result.facts.inheritance_involved,
+                        "stale_symbols": result.facts.stale_symbols,
+                        "low_confidence_symbols": result.facts.low_confidence_symbols,
+                    },
+                }
+                print(json.dumps(output, indent=2))
+            else:
+                print(f"\nRisk Analysis: {symbol_id}")
+                print("=" * 60)
+                print(f"Risk Score: {result.risk_score}/100")
+                print(f"Decision: {result.decision}")
+                if result.issues:
+                    print(f"\nIssues ({len(result.issues)}):")
+                    for issue in result.issues:
+                        print(f"  - {issue}")
+                else:
+                    print("\nIssues: (none)")
+
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        logger.exception("cmd_risk_symbol: Failed to analyze symbol risk")
+        raise
+
+
+def cmd_risk_targets(args: argparse.Namespace) -> int:
+    """Analyze risk for multiple symbols.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    symbol_ids = args.symbol_ids
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            result = analyze_target_set_risk(conn, symbol_ids)
+
+            logger.info("Target set risk analyzed", extra={
+                "symbol_count": len(symbol_ids),
+                "risk_score": result.risk_score,
+                "decision": result.decision,
+                "issues": len(result.issues)
+            })
+
+            if args.json:
+                output = {
+                    "symbols": symbol_ids,
+                    "risk_score": result.risk_score,
+                    "decision": result.decision,
+                    "issues": result.issues,
+                    "facts": {
+                        "target_count": result.facts.target_count,
+                        "symbol_kinds": list(result.facts.symbol_kinds),
+                        "touches_public_surface": result.facts.touches_public_surface,
+                        "cross_file_impact": result.facts.cross_file_impact,
+                        "cross_module_impact": result.facts.cross_module_impact,
+                        "inheritance_involved": result.facts.inheritance_involved,
+                        "stale_symbols": result.facts.stale_symbols,
+                    },
+                }
+                print(json.dumps(output, indent=2))
+            else:
+                print(f"\nRisk Analysis: {len(symbol_ids)} symbol(s)")
+                print("=" * 60)
+                print(f"Risk Score: {result.risk_score}/100")
+                print(f"Decision: {result.decision}")
+                if result.issues:
+                    print(f"\nIssues ({len(result.issues)}):")
+                    for issue in result.issues:
+                        print(f"  - {issue}")
+                else:
+                    print("\nIssues: (none)")
+
+            return 0
+        finally:
+            close_connection(conn)
+    except Exception as exc:
+        logger.exception("cmd_risk_targets: Failed to analyze target set risk")
+        raise
 
 
 def main() -> int:
@@ -1400,8 +1543,61 @@ def main() -> int:
     )
     show_refby_parser.set_defaults(func=cmd_show_referenced_by)
 
+    # risk-symbol command
+    risk_symbol_parser = subparsers.add_parser("risk-symbol", help="Analyze risk for a single symbol")
+    risk_symbol_parser.add_argument(
+        "symbol_id",
+        type=str,
+        help="Symbol ID to analyze",
+    )
+    risk_symbol_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    risk_symbol_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    risk_symbol_parser.set_defaults(func=cmd_risk_symbol)
+
+    # risk-targets command
+    risk_targets_parser = subparsers.add_parser("risk-targets", help="Analyze risk for multiple symbols")
+    risk_targets_parser.add_argument(
+        "symbol_ids",
+        type=str,
+        nargs="+",
+        help="Symbol IDs to analyze",
+    )
+    risk_targets_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    risk_targets_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
+    risk_targets_parser.set_defaults(func=cmd_risk_targets)
+
     args = parser.parse_args()
-    return args.func(args)
+    
+    try:
+        return args.func(args)
+    except FileNotFoundError as exc:
+        logger.exception("CLI: File or directory not found")
+        print(f"Error: File or directory not found: {exc}", file=sys.stderr)
+        return 1
+    except NotADirectoryError as exc:
+        logger.exception("CLI: Path is not a directory")
+        print(f"Error: Not a directory: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        logger.exception("CLI: Command failed")
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

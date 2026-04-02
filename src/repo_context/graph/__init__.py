@@ -22,6 +22,32 @@ from repo_context.graph.references import (
     build_reference_stats,
     get_reference_refresh_state,
 )
+from repo_context.graph.risk_engine import (
+    analyze_symbol_risk,
+    analyze_target_set_risk,
+)
+from repo_context.graph.risk_types import (
+    RiskTarget,
+    RiskFacts,
+    RiskResult,
+)
+from repo_context.graph.risk_rules import (
+    ISSUE_STALE_CONTEXT,
+    ISSUE_LOW_CONFIDENCE_MATCH,
+    ISSUE_HIGH_REFERENCE_COUNT,
+    ISSUE_CROSS_FILE_IMPACT,
+    ISSUE_CROSS_MODULE_IMPACT,
+    ISSUE_PUBLIC_SURFACE_CHANGE,
+    ISSUE_INHERITANCE_RISK,
+    ISSUE_MULTI_FILE_CHANGE,
+    ISSUE_MULTI_MODULE_CHANGE,
+    ISSUE_REFERENCE_DATA_UNAVAILABLE,
+)
+from repo_context.graph.risk_scoring import (
+    DECISION_SAFE_ENOUGH,
+    DECISION_REVIEW_REQUIRED,
+    DECISION_HIGH_RISK,
+)
 
 __all__ = [
     "get_symbol",
@@ -43,4 +69,26 @@ __all__ = [
     "list_references_from_symbol",
     "build_reference_stats",
     "get_reference_refresh_state",
+    # Risk engine
+    "analyze_symbol_risk",
+    "analyze_target_set_risk",
+    # Risk types
+    "RiskTarget",
+    "RiskFacts",
+    "RiskResult",
+    # Risk issue codes
+    "ISSUE_STALE_CONTEXT",
+    "ISSUE_LOW_CONFIDENCE_MATCH",
+    "ISSUE_HIGH_REFERENCE_COUNT",
+    "ISSUE_CROSS_FILE_IMPACT",
+    "ISSUE_CROSS_MODULE_IMPACT",
+    "ISSUE_PUBLIC_SURFACE_CHANGE",
+    "ISSUE_INHERITANCE_RISK",
+    "ISSUE_MULTI_FILE_CHANGE",
+    "ISSUE_MULTI_MODULE_CHANGE",
+    "ISSUE_REFERENCE_DATA_UNAVAILABLE",
+    # Risk decisions
+    "DECISION_SAFE_ENOUGH",
+    "DECISION_REVIEW_REQUIRED",
+    "DECISION_HIGH_RISK",
 ]
