@@ -1235,6 +1235,31 @@ def cmd_risk_targets(args: argparse.Namespace) -> int:
         raise
 
 
+def cmd_serve_mcp(args: argparse.Namespace) -> int:
+    """Start the MCP server on stdio transport.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    from repo_context.mcp import run_server
+
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    debug = getattr(args, "debug", False)
+
+    try:
+        logger.info("Starting MCP server", extra={"db_path": str(db_path), "debug": debug})
+        run_server(db_path=str(db_path), debug=debug)
+        return 0
+    except Exception as exc:
+        logger.exception("cmd_serve_mcp: Failed to start MCP server")
+        print(f"Error: Failed to start MCP server: {exc}", file=sys.stderr)
+        return 1
+
+
 def main() -> int:
     """Main entry point.
 
@@ -1581,6 +1606,20 @@ def main() -> int:
         help="Output as JSON",
     )
     risk_targets_parser.set_defaults(func=cmd_risk_targets)
+
+    # serve-mcp command
+    serve_mcp_parser = subparsers.add_parser("serve-mcp", help="Start MCP server on stdio")
+    serve_mcp_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    serve_mcp_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging",
+    )
+    serve_mcp_parser.set_defaults(func=cmd_serve_mcp)
 
     args = parser.parse_args()
     
