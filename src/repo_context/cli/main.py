@@ -1260,6 +1260,51 @@ def cmd_serve_mcp(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Watch a repository for file changes and perform incremental updates.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    from repo_context.indexing import watch_repo
+
+    config = get_config()
+    db_path = args.db_path if args.db_path else config.db_path
+    repo_root = args.repo_root
+    debounce_ms = getattr(args, "debounce_ms", 500)
+    verbose = getattr(args, "verbose", False)
+
+    try:
+        logger.info("Starting watch mode", extra={
+            "repo_root": str(repo_root),
+            "db_path": str(db_path),
+            "debounce_ms": debounce_ms,
+            "verbose": verbose,
+        })
+        watch_repo(
+            repo_root=repo_root,
+            db_path=str(db_path),
+            debounce_ms=debounce_ms,
+            verbose=verbose,
+        )
+        return 0
+    except FileNotFoundError as exc:
+        logger.exception("cmd_watch: Repository root not found")
+        print(f"Error: Repository root not found: {exc}", file=sys.stderr)
+        return 1
+    except NotADirectoryError as exc:
+        logger.exception("cmd_watch: Not a directory")
+        print(f"Error: Not a directory: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        logger.exception("cmd_watch: Failed to start watch mode")
+        print(f"Error: Failed to start watch mode: {exc}", file=sys.stderr)
+        return 1
+
+
 def main() -> int:
     """Main entry point.
 
@@ -1620,6 +1665,31 @@ def main() -> int:
         help="Enable debug logging",
     )
     serve_mcp_parser.set_defaults(func=cmd_serve_mcp)
+
+    # watch command
+    watch_parser = subparsers.add_parser("watch", help="Watch repository for file changes")
+    watch_parser.add_argument(
+        "repo_root",
+        type=Path,
+        help="Path to repository root",
+    )
+    watch_parser.add_argument(
+        "--debounce-ms",
+        type=int,
+        default=500,
+        help="Debounce window in milliseconds (default: 500)",
+    )
+    watch_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging",
+    )
+    watch_parser.add_argument(
+        "--db-path",
+        type=Path,
+        help="Path to database file (default: repo_context.db)",
+    )
+    watch_parser.set_defaults(func=cmd_watch)
 
     args = parser.parse_args()
     

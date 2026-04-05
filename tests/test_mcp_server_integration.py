@@ -291,14 +291,9 @@ def test_mcp_server():
     
     # Summary
     print("\n" + "=" * 60)
-    if errors:
-        print(f"FAILED: {len(errors)} error(s)")
-        for err in errors:
-            print(f"  - {err}")
-        return 1
-    else:
-        print("ALL TESTS PASSED ✅")
-        return 0
+    assert not errors, f"Test failed with errors: {errors}"
+    print("ALL TESTS PASSED ✅")
+
 
 if __name__ == "__main__":
-    sys.exit(test_mcp_server())
+    test_mcp_server()
