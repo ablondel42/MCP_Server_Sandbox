@@ -6,7 +6,9 @@
 
 **Core value proposition:** Safer AI-assisted planning through deterministic pre-change checking and human approval gates before implementation.
 
-**Current Status:** Phases 0-8 complete. Phases 9-10 pending.
+**Current Status:** Phases 0-9 complete. Phase 10 (workflow layer) pending.
+
+**Test status:** 364 tests pass, 0 warnings.
 
 ---
 
@@ -16,15 +18,15 @@ The system follows a layered architecture:
 
 ```
 Local repo
-  -> Repository Scanner (file inventory) ✅ Phase 02
-  -> AST Extraction (structural graph) ✅ Phase 03
-  -> SQLite Graph Storage ✅ Phase 04
-  -> Context Builder (symbol-centered views) ✅ Phase 05
-  -> LSP Reference Enrichment ✅ Phase 06
-  -> Risk Engine (deterministic analysis) ✅ Phase 07
-  -> MCP Server (tool exposure) ✅ Phase 08
-  -> Watch Mode (incremental updates) ⏳ Phase 09
-  -> Workflow Layer (plan->check->approve->implement) ⏳ Phase 10
+  -> Repository Scanner (file inventory)        ✅ Phase 02
+  -> AST Extraction (structural graph)          ✅ Phase 03
+  -> SQLite Graph Storage                       ✅ Phase 04
+  -> Context Builder (symbol-centered views)    ✅ Phase 05
+  -> LSP Reference Enrichment                   ✅ Phase 06
+  -> Risk Engine (deterministic analysis)       ✅ Phase 07
+  -> MCP Server (tool exposure)                 ✅ Phase 08
+  -> Watch Mode (incremental updates)           ✅ Phase 09
+  -> Workflow Layer (plan→check→approve→impl)   ⏳ Phase 10
   -> Agent
   -> Human approval
   -> Implementation
@@ -41,8 +43,8 @@ Local repo
 | **LSP References** | Enriches graph with `references` edges via language server queries | 06 | ✅ Complete |
 | **Risk Engine** | Deterministic risk analysis: facts, issues, scores, decisions | 07 | ✅ Complete |
 | **MCP Server** | Exposes 6 tools: resolve, context, refresh refs, get refs, risk (single/multi) | 08 | ✅ Complete |
-| **Watch Mode** | Incremental graph updates on filesystem changes | 09 | ⏳ Pending |
-| **Workflow Layer** | Enforces plan->check->approve->implement sequence | 10 | ⏳ Pending |
+| **Watch Mode** | Filesystem watching, debounce, incremental reindex, reference invalidation | 09 | ✅ Complete |
+| **Workflow Layer** | Enforces plan→check→approve→implement sequence | 10 | ⏳ Pending |
 
 ---
 
@@ -55,6 +57,7 @@ Local repo
 - **AST:** Python `ast` module
 - **LSP:** `lsprotocol==2023.0.1`, pyright (external)
 - **MCP:** `mcp>=1.2.0` (FastMCP)
+- **Filesystem Watch:** `watchdog>=3.0.0`
 - **Testing:** pytest
 
 ---
@@ -86,7 +89,7 @@ MCP_Server_Sandbox/
       storage/
         __init__.py
         db.py                 # SQLite connection helpers
-        migrations.py         # Schema setup (5 tables, 13 indexes)
+        migrations.py         # Schema setup (5+ tables, 22 indexes)
         repos.py              # RepoRecord persistence
         files.py              # FileRecord persistence
         nodes.py              # SymbolNode persistence
@@ -101,7 +104,7 @@ MCP_Server_Sandbox/
         risk_types.py         # RiskTarget, RiskFacts, RiskResult
         risk_targets.py       # Target normalization, public-surface heuristic
         risk_facts.py         # Fact extraction (refs, inheritance, freshness, confidence)
-        risk_rules.py         # Issue detection (10 issue codes)
+        risk_rules.py         # Issue detection (11 issue codes)
         risk_scoring.py       # Score weights + decision logic
         risk_engine.py        # Main entry points
       context/
@@ -140,16 +143,23 @@ MCP_Server_Sandbox/
         schemas.py            # Pydantic input/output schemas
         errors.py             # Structured error helpers
         adapters.py           # Internal → tool payload adapters
+      indexing/
+        __init__.py
+        watch.py              # Watchdog setup + event routing
+        events.py             # FileChangeEvent, normalize_event
+        scheduler.py          # EventScheduler with debounce
+        incremental.py        # reindex_changed_file, handle_deleted_file, process_event_batch
+        invalidation.py       # mark_symbols_in_file_stale, invalidate_reference_summaries_for_file
       validation/
         __init__.py
         exceptions.py         # Validation exception types
         validators.py         # Field validators
       cli/
         __init__.py
-        main.py               # CLI entry point (17 commands)
+        main.py               # CLI entry point (20 commands)
   tests/
     __init__.py
-    test_*.py                 # 343 unit and integration tests
+    test_*.py                 # 364 unit and integration tests
     fixtures/                 # Test fixtures
 ```
 
@@ -168,56 +178,78 @@ source .venv/bin/activate  # macOS/Linux
 pip install -e .
 ```
 
-### Development Commands
+### CLI Commands
 
 ```bash
 # Initialize database
-rc init-db
+rc init-db [--db-path PATH]
 
-# Health check
-rc doctor
+# Health check (tables, indexes)
+rc doctor [--db-path PATH]
 
 # Full pipeline: init + scan + extract-ast + LSP references
-rc run full /path/to/repo
+rc run full /path/to/repo [--db-path PATH]
 
-# Scan repository only
-rc run scan /path/to/repo
+# Repository scan only
+rc scan-repo /path/to/repo [--db-path PATH] [--json]
 
-# Repository scan (standalone)
-rc scan-repo /path/to/repo
-
-# AST extraction
-rc extract-ast /path/to/repo
+# AST extraction only
+rc extract-ast /path/to/repo [--db-path PATH] [--json]
 
 # Graph statistics
-rc graph-stats repo:test
+rc graph-stats repo:test [--db-path PATH] [--json]
 
-# Find symbols
-rc find-symbol repo:test ClassName --kind class
+# Find symbols by name pattern
+rc find-symbol repo:test ClassName [--kind KIND] [--limit N] [--db-path PATH] [--json]
 
-# Get symbol context
-rc symbol-context repo:test sym:repo:test:class:MyClass
+# Get full symbol context
+rc symbol-context repo:test sym:repo:test:class:MyClass [--db-path PATH] [--by-name] [--json]
 
-# Symbol references
-rc symbol-references repo:test MyClass --direction incoming
+# Get symbol references
+rc symbol-references repo:test MyClass [--direction incoming|outgoing|both] [--db-path PATH] [--json]
+
+# Refresh LSP references
+rc refresh-references SYMBOL_ID [--db-path PATH] [--verbose]
+
+# Show stored references
+rc show-references SYMBOL_ID [--db-path PATH] [--json]
+
+# Show symbols that reference this symbol
+rc show-referenced-by SYMBOL_ID [--db-path PATH] [--json]
+
+# List all nodes
+rc list-nodes repo:test [--db-path PATH] [--json]
+
+# Show details for a specific node
+rc show-node SYMBOL_ID [--db-path PATH] [--json]
 
 # Risk analysis (single symbol)
-rc risk-symbol sym:repo:test:function:my_func
+rc risk-symbol SYMBOL_ID [--db-path PATH] [--json]
 
 # Risk analysis (multiple symbols)
-rc risk-targets sym:repo:test:function:func1 sym:repo:test:function:func2
+rc risk-targets SYMBOL1 SYMBOL2 [--db-path PATH] [--json]
 
-# Start MCP server
+# Start MCP server on stdio
 rc serve-mcp [--db-path PATH] [--debug]
 
+# Watch repository for file changes (incremental updates)
+rc watch /path/to/repo [--debounce-ms MS] [--verbose] [--db-path PATH]
+```
+
+### Testing
+
+```bash
 # Run all tests
 pytest
 
 # Run specific test file
-pytest tests/test_risk_engine.py
+pytest tests/test_watch_mode.py
 
 # Run with verbose output
 pytest -v
+
+# Run with coverage (if installed)
+pytest --cov=repo_context
 ```
 
 ---
@@ -256,18 +288,19 @@ All tools return JSON with:
 5. **index_runs** - Indexing operation tracking
 6. **reference_refresh** - LSP refresh state per symbol
 
-### Indexes (13+)
+### Indexes (22)
 
 - `idx_nodes_repo_id`, `idx_nodes_file_id`, `idx_nodes_qualified_name`, `idx_nodes_parent_id`, `idx_nodes_kind`
 - `idx_edges_repo_id`, `idx_edges_from_id`, `idx_edges_to_id`, `idx_edges_kind`, `idx_edges_evidence_file_id`
 - `idx_files_repo_id`
 - `idx_index_runs_repo_id`, `idx_index_runs_status`
+- Additional LSP and reference-related indexes
 
 ---
 
 ## Risk Engine
 
-### Issue Codes (10)
+### Issue Codes (11)
 
 | Issue | Weight | Trigger |
 |-------|--------|---------|
@@ -298,6 +331,46 @@ All tools return JSON with:
 
 ---
 
+## Watch Mode
+
+### Event Flow
+
+```
+Filesystem change
+  -> Watchdog event
+  -> normalize_event() → FileChangeEvent
+  -> EventScheduler.submit() (dedup by path)
+  -> Debounce window (default 500ms)
+  -> collapse_events() (created+modified→create, deleted wins)
+  -> process_event_batch() (one file at a time)
+  -> reindex_changed_file() or handle_deleted_file()
+  -> invalidate_reference_summaries_for_file()
+  -> mark_symbols_in_file_stale()
+  -> Per-file summary returned
+```
+
+### Event Collapse Rules
+
+- Repeated `modified` events → one `modified`
+- `created` + `modified` → one effective create
+- Latest `deleted` wins over earlier create or modify
+- One final path processed once per batch
+
+### Parse Failure Policy
+
+- Keep previous valid graph state unchanged
+- Do not invalidate previously valid graph state
+- Return `status = "parse_failed"` summary
+- Log the parse failure
+
+### Reference Invalidation Policy
+
+- Remove `references` edges where `evidence_file_id = changed_file_id`
+- Mark reference availability for symbols declared in that file as unavailable
+- Do not auto-trigger LSP refresh on every save
+
+---
+
 ## Development Conventions
 
 ### Code Style
@@ -316,13 +389,14 @@ All tools return JSON with:
 - Logger: `logger = get_logger("module.name")`
 - **STDIO servers must never write to stdout** - use `file=sys.stderr` or logger
 - Log format includes: `%(asctime)s [%(levelname)s] %(name)s:%(lineno)d (%(funcName)s): %(message)s`
+- Use `logger.exception("message")` for errors with traceback
+- Include function name prefix in error messages: `"cmd_name: Failed to do something"`
 
 ### Error Handling
 
-- Use `logger.exception("message")` for errors with traceback
-- Include function name prefix in error messages: `"cmd_name: Failed to do something"`
 - Let exceptions bubble to main() wrapper for CLI commands
 - MCP tools return structured error results, never raw exceptions
+- Use `print(f"Error: ...", file=sys.stderr)` for user-facing CLI errors
 
 ### Model Design
 
@@ -340,6 +414,15 @@ All tools return JSON with:
 - **Fixture strategy:** Use small realistic repo fixtures
 - **Test edge cases:** Empty repos, invalid paths, ignored directories, nested functions
 - **Integration tests:** Test MCP server via real JSON-RPC over stdio
+- **No return values in test functions:** Use `assert` instead of `return 0`/`return 1`
+
+### Database Rules
+
+- **Always use parameterized queries** through SQLite helpers
+- **Upsert by ID:** Use `ON CONFLICT(id) DO UPDATE`
+- **File ownership:** Every node/edge tracks owning file for cleanup
+- **Transactions:** Wrap file-level operations in transactions
+- **No concurrent writes:** Single-writer expectation for v1
 
 ---
 
@@ -355,8 +438,8 @@ The system must be built in this exact sequence to avoid rework:
 6. **LSP References** ✅ - Reference enrichment, location mapping
 7. **Risk Engine** ✅ - Facts, issues, scoring, decisions
 8. **MCP Server** ✅ - Tool exposure, input/output contracts
-9. **Watch Mode** ⏳ - Incremental updates on file changes
-10. **Real Workflow** ⏳ - Plan->check->approve->implement enforcement
+9. **Watch Mode** ✅ - Incremental updates on file changes
+10. **Real Workflow** ⏳ - Plan→check→approve→implement enforcement
 
 ---
 
@@ -377,6 +460,7 @@ The system must be built in this exact sequence to avoid rework:
 - **Context builder** assembles views, doesn't do risk analysis
 - **Risk engine** computes scores, doesn't generate text
 - **MCP server** exposes tools, doesn't implement business logic
+- **Watch mode** keeps graph fresh, doesn't touch MCP
 
 ### STDIO Safety
 
@@ -389,6 +473,40 @@ The system must be built in this exact sequence to avoid rework:
 - Read-only tools must not auto-refresh implicitly
 - Unrefreshed references ≠ zero references (availability=False)
 - Explicit refresh state tracked in `reference_refresh` table
+- Watch mode invalidates stale references, doesn't auto-refresh
+
+### Watch Mode Coexistence
+
+- Watch mode runs as a separate process from the MCP server by default
+- Single-writer SQLite expectation
+- Not coupled to MCP server lifecycle
+- MCP can function without watch mode running
+
+---
+
+## Common Mistakes to Avoid
+
+### Architecture
+
+- **Overengineering early:** Keep v1 simple; add complexity only when needed
+- **Mixing domain logic into CLI:** CLI orchestrates; domain logic lives in modules
+- **Skipping canonical models:** Do not use raw AST/LSP objects as schema
+- **Building IDE features:** LSP is for references only, not hover/rename/completion
+
+### Database
+
+- **Forgetting cleanup on reindex:** Always replace file graph cleanly
+- **Skipping indexes:** Graph queries need indexes on `from_id`, `to_id`, `qualified_name`
+- **Raw SQL everywhere:** Use storage helpers; keep SQL in one place
+- **Orphan nodes/edges:** Every entity must belong to a repo and file
+- **Edges don't have file_id:** Use subqueries on nodes to find file-owned edges
+
+### Watch Mode
+
+- **Concurrent DB writes:** One worker only in v1, sequential processing
+- **Auto-refreshing references:** Don't trigger expensive LSP on every save
+- **Destroying valid state on parse failure:** Keep previous graph intact
+- **Ignoring debounce:** Noisy editor saves will overwhelm without it
 
 ---
 
@@ -405,3 +523,26 @@ The system must be built in this exact sequence to avoid rework:
 - Compromise security checks to "make it work"
 - Make large refactors without explicit approval
 - Assume patterns; copy from existing code
+
+---
+
+## Git Branches
+
+- **main:** Primary development branch
+
+---
+
+## References
+
+- `build-plan-phases/00-quick-summary.md` - Phase overview
+- `build-plan-phases/01-bootstrap.md` - Foundation setup (✅ Complete)
+- `build-plan-phases/02-repo-scanner.md` - File inventory (✅ Complete)
+- `build-plan-phases/03-ast-extraction.md` - Structural graph (✅ Complete)
+- `build-plan-phases/03b-nesting-support.md` - Nested function support (✅ Complete)
+- `build-plan-phases/04-graph-storage.md` - Persistence layer (✅ Complete)
+- `build-plan-phases/05-context-builder.md` - Context assembly (✅ Complete)
+- `build-plan-phases/06-lsp-references.md` - Reference enrichment (✅ Complete)
+- `build-plan-phases/07-risk-engine.md` - Risk analysis (✅ Complete)
+- `build-plan-phases/08-mcp-server.md` - Tool exposure (✅ Complete)
+- `build-plan-phases/09-watch-mode.md` - Incremental updates (✅ Complete)
+- `build-plan-phases/10-real-workflow.md` - End-to-end workflow (⏳ Next)

@@ -1,50 +1,35 @@
-"""Validation module for input validation, type safety, and error handling."""
+"""Validation package for end-to-end workflow verification.
 
-from repo_context.validation.exceptions import (
-    RepoContextError,
-    ValidationError,
-    InvalidInputError,
-    DatabaseError,
-    NotFoundError,
-    FilesystemError,
-    ParseError,
-)
-
-from repo_context.validation.validators import (
-    validate_repo_id,
-    validate_file_id,
-    validate_symbol_id,
-    validate_edge_id,
-    validate_repo_path,
-    validate_db_path,
-    validate_file_path,
-    validate_confidence,
-    validate_kind,
-    validate_hash,
-    validate_uri,
-    sanitize_string,
-)
+Provides fixture-driven validation runners, contract checkers,
+and shape validators for graph, context, references, risk, and MCP outputs.
+"""
 
 __all__ = [
-    # Exceptions
-    "RepoContextError",
-    "ValidationError",
-    "InvalidInputError",
-    "DatabaseError",
-    "NotFoundError",
-    "FilesystemError",
-    "ParseError",
-    # Validators
-    "validate_repo_id",
-    "validate_file_id",
-    "validate_symbol_id",
-    "validate_edge_id",
-    "validate_repo_path",
-    "validate_db_path",
-    "validate_file_path",
-    "validate_confidence",
-    "validate_kind",
-    "validate_hash",
-    "validate_uri",
-    "sanitize_string",
+    "run_full_workflow_validation",
+    "run_symbol_workflow_validation",
+    "run_mcp_workflow_validation",
+    "run_watch_workflow_validation",
+    "ValidationResult",
 ]
+
+
+def __getattr__(name: str):
+    """Lazy import to avoid circular dependencies."""
+    if name in ("run_full_workflow_validation", "run_symbol_workflow_validation",
+                "run_mcp_workflow_validation", "run_watch_workflow_validation",
+                "ValidationResult"):
+        from repo_context.validation.workflow import (
+            run_full_workflow_validation,
+            run_symbol_workflow_validation,
+            run_mcp_workflow_validation,
+            run_watch_workflow_validation,
+            ValidationResult,
+        )
+        return {
+            "run_full_workflow_validation": run_full_workflow_validation,
+            "run_symbol_workflow_validation": run_symbol_workflow_validation,
+            "run_mcp_workflow_validation": run_mcp_workflow_validation,
+            "run_watch_workflow_validation": run_watch_workflow_validation,
+            "ValidationResult": ValidationResult,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
