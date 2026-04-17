@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import os
+import select
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "repo_context.db")
 SERVER_CMD = [
@@ -23,7 +24,6 @@ def send_message(proc, message: dict, timeout: float = 5.0) -> dict | None:
     proc.stdin.flush()
     
     # Read response from stdout
-    import select
     start = time.time()
     while time.time() - start < timeout:
         if select.select([proc.stdout], [], [], 0.1)[0]:

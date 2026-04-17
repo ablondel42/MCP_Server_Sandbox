@@ -11,6 +11,7 @@ from repo_context.logging_config import (
     get_logger,
     LOGGING_INITIALIZED,
 )
+import repo_context.logging_config as logging_config
 
 
 class TestGetLogger:
@@ -44,7 +45,6 @@ class TestSetupLogging:
     def test_setup_logging_initializes_flag(self) -> None:
         """Test setup_logging sets LOGGING_INITIALIZED to True."""
         # Reset flag first
-        import repo_context.logging_config as logging_config
         logging_config.LOGGING_INITIALIZED = False
         
         setup_logging(level="INFO")
@@ -52,7 +52,6 @@ class TestSetupLogging:
 
     def test_setup_logging_does_not_reinitialize(self, caplog) -> None:
         """Test setup_logging doesn't reinitialize if already set up."""
-        import repo_context.logging_config as logging_config
         logging_config.LOGGING_INITIALIZED = True
         
         with caplog.at_level(logging.WARNING):
@@ -63,7 +62,6 @@ class TestSetupLogging:
 
     def test_setup_logging_console_handler(self) -> None:
         """Test setup_logging adds console handler."""
-        import repo_context.logging_config as logging_config
         logging_config.LOGGING_INITIALIZED = False
         
         # Clear any existing handlers
@@ -77,7 +75,6 @@ class TestSetupLogging:
 
     def test_setup_logging_respects_level(self) -> None:
         """Test setup_logging sets correct log level."""
-        import repo_context.logging_config as logging_config
         logging_config.LOGGING_INITIALIZED = False
         
         root_logger = logging.getLogger("repo_context")
@@ -93,7 +90,6 @@ class TestSetupLogging:
 
     def test_setup_logging_with_file_handler(self) -> None:
         """Test setup_logging creates file handler when log_file provided."""
-        import repo_context.logging_config as logging_config
         logging_config.LOGGING_INITIALIZED = False
         
         root_logger = logging.getLogger("repo_context")
@@ -115,7 +111,6 @@ class TestSetupLogging:
 
     def test_setup_logging_default_level_is_info(self) -> None:
         """Test setup_logging default level is INFO."""
-        import repo_context.logging_config as logging_config
         logging_config.LOGGING_INITIALIZED = False
         
         root_logger = logging.getLogger("repo_context")

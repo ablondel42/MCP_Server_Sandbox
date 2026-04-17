@@ -29,6 +29,7 @@ from repo_context.storage import (
     delete_edges_for_file,
     replace_file_graph,
 )
+from repo_context.graph import get_repo_graph_stats
 
 
 @pytest.fixture
@@ -448,8 +449,6 @@ def test_replace_file_graph_transactional(initialized_db) -> None:
 
 def test_get_repo_graph_stats(initialized_db) -> None:
     """Test getting graph statistics for a repository."""
-    from repo_context.graph import get_repo_graph_stats
-    
     conn = initialized_db
     
     # Create nodes of various kinds including local functions

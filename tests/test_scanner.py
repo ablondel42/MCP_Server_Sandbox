@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -154,7 +155,6 @@ def test_file_uri_generation(temp_dir: Path) -> None:
     assert uri.startswith("file://")
     
     # Verify it's a valid URI
-    from urllib.parse import urlparse
     parsed = urlparse(uri)
     assert parsed.scheme == "file"
 

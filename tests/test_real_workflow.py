@@ -14,6 +14,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -30,7 +31,7 @@ from repo_context.graph import (
     list_reference_edges_for_target,
     analyze_symbol_risk,
 )
-from repo_context.validation import (
+from repo_context.validation.workflow import (
     run_full_workflow_validation,
     run_symbol_workflow_validation,
     ValidationResult,
@@ -440,7 +441,6 @@ def _context_to_dict(context) -> dict:
     if hasattr(context, "model_dump"):
         return context.model_dump()
     # Handle dataclass
-    from dataclasses import asdict
     return asdict(context)
 
 
@@ -448,7 +448,6 @@ def _risk_to_dict(risk_result) -> dict:
     """Convert RiskResult to dict."""
     if isinstance(risk_result, dict):
         return risk_result
-    from dataclasses import asdict
     return asdict(risk_result)
 
 

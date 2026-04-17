@@ -9,11 +9,8 @@ from repo_context.storage import (
     close_connection,
 )
 
-
-
 from ..utils import get_connection_for_args
-from repo_context.validation import run_full_workflow_validation
-from repo_context.validation import run_symbol_workflow_validation
+from repo_context.validation.workflow import run_full_workflow_validation, run_symbol_workflow_validation
 
 
 

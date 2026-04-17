@@ -15,6 +15,7 @@ Tests cover:
 """
 
 import json
+import datetime
 import tempfile
 from pathlib import Path
 
@@ -77,8 +78,6 @@ def initialized_conn(temp_db_path: Path):
 
 def _create_test_graph(conn, repo_id: str = "repo:test"):
     """Create a minimal test graph with symbols and references."""
-    import datetime
-    
     # Create repo
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     repo = RepoRecord(id=repo_id, root_path="/test", name="test", default_language="python", created_at=now)

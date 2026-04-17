@@ -30,6 +30,7 @@ from repo_context.storage import (
     list_nodes_for_file,
     list_edges_for_repo,
 )
+from repo_context.models.repo import RepoRecord
 
 
 @pytest.fixture
@@ -719,8 +720,6 @@ def test_all_node_kinds_have_scope(nested_scope_fixture: Path) -> None:
 
 def test_phase4_persists_nested_symbol_fields(temp_db: Path, nested_scope_fixture: Path) -> None:
     """Test that scope and lexical_parent_id are persisted to database."""
-    from repo_context.models.repo import RepoRecord
-    
     file_path = nested_scope_fixture / "nested_funcs.py"
     file_record = _create_file_record("repo:test", "nested_funcs.py", "nested_funcs")
     
@@ -765,8 +764,6 @@ def test_phase4_persists_nested_symbol_fields(temp_db: Path, nested_scope_fixtur
 
 def test_nested_symbols_queryable(temp_db: Path, nested_scope_fixture: Path) -> None:
     """Test that nested symbols can be queried by qualified name and lexical parent."""
-    from repo_context.models.repo import RepoRecord
-    
     file_path = nested_scope_fixture / "nested_funcs.py"
     file_record = _create_file_record("repo:test", "nested_funcs.py", "nested_funcs")
     
@@ -812,8 +809,6 @@ def test_nested_symbols_queryable(temp_db: Path, nested_scope_fixture: Path) -> 
 
 def test_compatibility_no_regressions(temp_db: Path, simple_package_fixture: Path) -> None:
     """Test that files without nested declarations still work correctly."""
-    from repo_context.models.repo import RepoRecord
-    
     file_path = simple_package_fixture / "services.py"
     file_record = _create_file_record("repo:test", "services.py", "services")
     

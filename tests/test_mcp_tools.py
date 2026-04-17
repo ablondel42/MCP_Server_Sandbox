@@ -31,6 +31,16 @@ from repo_context.mcp.errors import (
     ERROR_AMBIGUOUS_SYMBOL,
 )
 from repo_context.mcp.adapters import adapt_node, adapt_edge
+import datetime
+import asyncio
+from repo_context.mcp.schemas import ResolveSymbolInput, AnalyzeTargetSetRiskInput
+from repo_context.mcp.tools import (
+    resolve_symbol,
+    get_symbol_context,
+    get_symbol_references,
+    analyze_symbol_risk,
+    analyze_target_set_risk,
+)
 
 
 @pytest.fixture
@@ -49,8 +59,6 @@ def initialized_conn(temp_db_path: Path):
 
 def _create_test_graph(conn, repo_id: str = "repo:test"):
     """Create a minimal test graph."""
-    import datetime
-    
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     repo = RepoRecord(id=repo_id, root_path="/test", name="test", default_language="python", created_at=now)
     upsert_repo(conn, repo)
@@ -211,8 +219,6 @@ def test_adapt_edge():
 
 def test_resolve_symbol_input_validation():
     """Test ResolveSymbolInput validation."""
-    from repo_context.mcp.schemas import ResolveSymbolInput
-    
     # Valid input
     inp = ResolveSymbolInput(repo_id="repo:test", qualified_name="test.func")
     assert inp.repo_id == "repo:test"
@@ -228,8 +234,6 @@ def test_resolve_symbol_input_validation():
 
 def test_analyze_target_set_risk_input_validation():
     """Test AnalyzeTargetSetRiskInput validation."""
-    from repo_context.mcp.schemas import AnalyzeTargetSetRiskInput
-    
     # Valid input
     inp = AnalyzeTargetSetRiskInput(symbol_ids=["sym:1", "sym:2"])
     assert len(inp.symbol_ids) == 2
@@ -250,9 +254,6 @@ def test_resolve_symbol_success(initialized_conn):
     conn, db_path = initialized_conn
     _create_test_graph(conn)
     
-    from repo_context.mcp.tools import resolve_symbol
-    import asyncio
-    
     result = asyncio.run(
         resolve_symbol("repo:test", "src.module1.func1", db_path=str(db_path))
     )
@@ -266,9 +267,7 @@ def test_resolve_symbol_not_found(initialized_conn):
     """Test resolve_symbol returns error for missing symbol."""
     conn, db_path = initialized_conn
     
-    from repo_context.mcp.tools import resolve_symbol
-    import asyncio
-    
+
     result = asyncio.run(
         resolve_symbol("repo:test", "nonexistent.symbol", db_path=str(db_path))
     )
@@ -280,9 +279,6 @@ def test_resolve_symbol_not_found(initialized_conn):
 
 def test_resolve_symbol_invalid_input(initialized_conn):
     """Test resolve_symbol returns error for invalid input."""
-    from repo_context.mcp.tools import resolve_symbol
-    import asyncio
-    
     result = asyncio.run(resolve_symbol("", ""))
     data = json.loads(result)
     
@@ -294,9 +290,6 @@ def test_get_symbol_context_success(initialized_conn):
     """Test get_symbol_context returns context."""
     conn, db_path = initialized_conn
     _create_test_graph(conn)
-    
-    from repo_context.mcp.tools import get_symbol_context
-    import asyncio
     
     result = asyncio.run(
         get_symbol_context("sym:repo:test:function:src.module1.func1", db_path=str(db_path))
@@ -312,9 +305,6 @@ def test_get_symbol_context_not_found(initialized_conn):
     """Test get_symbol_context returns error for missing symbol."""
     conn, db_path = initialized_conn
     
-    from repo_context.mcp.tools import get_symbol_context
-    import asyncio
-    
     result = asyncio.run(
         get_symbol_context("sym:nonexistent", db_path=str(db_path))
     )
@@ -328,9 +318,6 @@ def test_get_symbol_references_success(initialized_conn):
     """Test get_symbol_references returns references."""
     conn, db_path = initialized_conn
     _create_test_graph(conn)
-    
-    from repo_context.mcp.tools import get_symbol_references
-    import asyncio
     
     result = asyncio.run(
         get_symbol_references("sym:repo:test:function:src.module1.func1", db_path=str(db_path))
@@ -346,9 +333,6 @@ def test_get_symbol_references_not_found(initialized_conn):
     """Test get_symbol_references returns error for missing symbol."""
     conn, db_path = initialized_conn
     
-    from repo_context.mcp.tools import get_symbol_references
-    import asyncio
-    
     result = asyncio.run(
         get_symbol_references("sym:nonexistent", db_path=str(db_path))
     )
@@ -362,9 +346,6 @@ def test_analyze_symbol_risk_success(initialized_conn):
     """Test analyze_symbol_risk returns risk analysis."""
     conn, db_path = initialized_conn
     _create_test_graph(conn)
-    
-    from repo_context.mcp.tools import analyze_symbol_risk
-    import asyncio
     
     result = asyncio.run(
         analyze_symbol_risk("sym:repo:test:function:src.module1.func1", db_path=str(db_path))
@@ -382,9 +363,6 @@ def test_analyze_symbol_risk_not_found(initialized_conn):
     """Test analyze_symbol_risk returns error for missing symbol."""
     conn, db_path = initialized_conn
     
-    from repo_context.mcp.tools import analyze_symbol_risk
-    import asyncio
-    
     result = asyncio.run(
         analyze_symbol_risk("sym:nonexistent", db_path=str(db_path))
     )
@@ -399,9 +377,6 @@ def test_analyze_target_set_risk_success(initialized_conn):
     conn, db_path = initialized_conn
     _create_test_graph(conn)
     
-    from repo_context.mcp.tools import analyze_target_set_risk
-    import asyncio
-    
     result = asyncio.run(
         analyze_target_set_risk(["sym:repo:test:function:src.module1.func1"], db_path=str(db_path))
     )
@@ -413,9 +388,6 @@ def test_analyze_target_set_risk_success(initialized_conn):
 
 def test_analyze_target_set_risk_empty_list(initialized_conn):
     """Test analyze_target_set_risk rejects empty list."""
-    from repo_context.mcp.tools import analyze_target_set_risk
-    import asyncio
-    
     result = asyncio.run(analyze_target_set_risk([]))
     data = json.loads(result)
     

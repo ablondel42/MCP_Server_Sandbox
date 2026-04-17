@@ -1,5 +1,6 @@
 .DS_Store
 *.db
+build-plan-phases
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

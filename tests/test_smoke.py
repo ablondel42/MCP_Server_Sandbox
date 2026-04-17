@@ -3,16 +3,28 @@
 import subprocess
 import sys
 
+import repo_context
+from repo_context.config import get_config
+from repo_context.models import (
+    Position,
+    Range,
+    RepoRecord,
+    FileRecord,
+    SymbolNode,
+    Edge,
+    SymbolContext,
+    PlanAssessment,
+    to_json,
+    from_json,
+)
+
 
 def test_import_package() -> None:
     """Test that the package can be imported."""
-    import repo_context  # noqa: F401
 
 
 def test_import_config() -> None:
     """Test that config can be imported and used."""
-    from repo_context.config import get_config
-
     config = get_config()
     assert config.app_name == "repo-context-mcp"
     assert config.debug is False
@@ -22,19 +34,6 @@ def test_import_config() -> None:
 
 def test_import_models() -> None:
     """Test that all models can be imported."""
-    from repo_context.models import (
-        Position,
-        Range,
-        RepoRecord,
-        FileRecord,
-        SymbolNode,
-        Edge,
-        SymbolContext,
-        PlanAssessment,
-        to_json,
-        from_json,
-    )
-
     # Verify they are classes/functions
     assert Position is not None
     assert Range is not None

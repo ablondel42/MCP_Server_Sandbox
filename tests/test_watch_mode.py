@@ -16,6 +16,7 @@ Tests cover:
 import json
 import tempfile
 import time
+import datetime
 from pathlib import Path
 
 import pytest
@@ -84,8 +85,6 @@ class Greeter:
 
 def _create_test_graph(conn, repo_id: str = "repo:test", file_path: str = "src/module.py"):
     """Create a minimal test graph with a file and symbols."""
-    import datetime
-    
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     repo = RepoRecord(id=repo_id, root_path="/test", name="test", default_language="python", created_at=now)
     upsert_repo(conn, repo)
