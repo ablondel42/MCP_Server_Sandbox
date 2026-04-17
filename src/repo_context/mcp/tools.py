@@ -45,6 +45,9 @@ from repo_context.mcp.errors import (
     ERROR_INTERNAL_ERROR,
 )
 from repo_context.mcp.adapters import adapt_node, adapt_edge, adapt_context, adapt_risk_result
+import pathlib
+from repo_context.lsp import PyrightLspClient
+from repo_context.lsp.references import enrich_references_for_symbol
 
 
 def _log(message: str) -> None:
@@ -56,7 +59,7 @@ def _get_conn(db_path: str | None = None):
     """Get database connection, initializing if needed."""
     config = get_config()
     db = db_path or config.db_path
-    conn = get_connection(db)
+    conn = get_connection(pathlib.Path(db))
     initialize_database(conn)
     return conn
 
@@ -163,7 +166,6 @@ async def refresh_symbol_references(symbol_id: str, db_path: str | None = None) 
         if file_record is None:
             return json.dumps(error_result(ERROR_REFERENCES_UNAVAILABLE, f"File not found for symbol: {symbol['file_id']}"))
 
-        payload = json.loads(symbol.get("payload_json", "{}")) if symbol.get("payload_json") else {}
         target_symbol = {
             "id": symbol["id"],
             "repo_id": symbol["repo_id"],
@@ -179,8 +181,6 @@ async def refresh_symbol_references(symbol_id: str, db_path: str | None = None) 
         }
 
         try:
-            from repo_context.lsp import PyrightLspClient
-            from repo_context.lsp.references import enrich_references_for_symbol
 
             with PyrightLspClient() as client:
                 stats = enrich_references_for_symbol(conn, client, target_symbol, open_all_files=True)

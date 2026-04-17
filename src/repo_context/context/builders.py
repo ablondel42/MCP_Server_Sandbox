@@ -1,7 +1,6 @@
 """Context builders for assembling symbol-centered graph views."""
 
 import sqlite3
-from typing import Any
 
 from repo_context.models import SymbolContext
 from repo_context.graph import (
@@ -17,7 +16,6 @@ from repo_context.graph import (
 )
 from repo_context.context.summaries import build_structural_summary, build_confidence
 from repo_context.context.freshness import build_freshness
-from repo_context.context.helpers import PLACEHOLDER_PREFIXES
 
 
 def adapt_node_to_symbol(node: dict) -> dict:

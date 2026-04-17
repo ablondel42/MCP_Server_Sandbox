@@ -1,0 +1,830 @@
+F401 [*] `repo_context.graph.get_symbol` imported but unused
+  --> src/repo_context/cli/main.py:28:5
+   |
+26 |     get_repo_graph_stats,
+27 |     find_symbols_by_name,
+28 |     get_symbol,
+   |     ^^^^^^^^^^
+29 |     get_symbol_by_qualified_name,
+30 |     build_reference_stats,
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.graph.DECISION_SAFE_ENOUGH` imported but unused
+  --> src/repo_context/cli/main.py:36:5
+   |
+34 |     analyze_symbol_risk,
+35 |     analyze_target_set_risk,
+36 |     DECISION_SAFE_ENOUGH,
+   |     ^^^^^^^^^^^^^^^^^^^^
+37 |     DECISION_REVIEW_REQUIRED,
+38 |     DECISION_HIGH_RISK,
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.graph.DECISION_REVIEW_REQUIRED` imported but unused
+  --> src/repo_context/cli/main.py:37:5
+   |
+35 |     analyze_target_set_risk,
+36 |     DECISION_SAFE_ENOUGH,
+37 |     DECISION_REVIEW_REQUIRED,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+38 |     DECISION_HIGH_RISK,
+39 | )
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.graph.DECISION_HIGH_RISK` imported but unused
+  --> src/repo_context/cli/main.py:38:5
+   |
+36 |     DECISION_SAFE_ENOUGH,
+37 |     DECISION_REVIEW_REQUIRED,
+38 |     DECISION_HIGH_RISK,
+   |     ^^^^^^^^^^^^^^^^^^
+39 | )
+40 | from repo_context.context import build_symbol_context
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.models.SymbolContext` imported but unused
+  --> src/repo_context/cli/main.py:41:33
+   |
+39 | )
+40 | from repo_context.context import build_symbol_context
+41 | from repo_context.models import SymbolContext
+   |                                 ^^^^^^^^^^^^^
+42 | from repo_context.parsing.scanner import scan_repository
+43 | from repo_context.parsing.pipeline import extract_file_graph
+   |
+help: Remove unused import: `repo_context.models.SymbolContext`
+
+F841 Local variable `total_refs` is assigned to but never used
+   --> src/repo_context/cli/main.py:144:17
+    |
+143 |                 # Refresh references for each symbol
+144 |                 total_refs = 0
+    |                 ^^^^^^^^^^
+145 |                 success_count = 0
+146 |                 error_count = 0
+    |
+help: Remove assignment to unused variable `total_refs`
+
+F841 Local variable `success_count` is assigned to but never used
+   --> src/repo_context/cli/main.py:145:17
+    |
+143 |                 # Refresh references for each symbol
+144 |                 total_refs = 0
+145 |                 success_count = 0
+    |                 ^^^^^^^^^^^^^
+146 |                 error_count = 0
+    |
+help: Remove assignment to unused variable `success_count`
+
+F841 Local variable `error_count` is assigned to but never used
+   --> src/repo_context/cli/main.py:146:17
+    |
+144 |                 total_refs = 0
+145 |                 success_count = 0
+146 |                 error_count = 0
+    |                 ^^^^^^^^^^^
+147 |                 
+148 |                 print(f"  Refreshing references...")
+    |
+help: Remove assignment to unused variable `error_count`
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:148:23
+    |
+146 |                 error_count = 0
+147 |                 
+148 |                 print(f"  Refreshing references...")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+149 |                 for i, symbol in enumerate(refreshable):
+150 |                     try:
+    |
+help: Remove extraneous `f` prefix
+
+F841 [*] Local variable `e` is assigned to but never used
+   --> src/repo_context/cli/main.py:174:41
+    |
+172 |                         lsp_success_count += 1
+173 |                         
+174 |                     except Exception as e:
+    |                                         ^
+175 |                         lsp_error_count += 1
+    |
+help: Remove assignment to unused variable `e`
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:425:19
+    |
+423 |             print(json.dumps(summary, indent=2))
+424 |         else:
+425 |             print(f"Repository scanned successfully")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+426 |             print(f"Repo ID: {repo.id}")
+427 |             print(f"Files found: {len(file_records)}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:468:23
+    |
+466 |             repo = get_repo_by_id(conn, repo_id)
+467 |             if repo is None:
+468 |                 print(f"Error: Repository not found. Run 'scan-repo' first.", file=sys.stderr)
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+469 |                 return 1
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:503:23
+    |
+501 |                 print(json.dumps(output, indent=2))
+502 |             else:
+503 |                 print(f"AST extraction complete")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+504 |                 print(f"Repo ID: {repo_id}")
+505 |                 print(f"Files processed: {len(file_records) - len(failures)}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:699:23
+    |
+697 |                 print("=" * 60)
+698 |
+699 |                 print(f"\nFocus Symbol:")
+    |                       ^^^^^^^^^^^^^^^^^^
+700 |                 print(f"  Kind: {focus['kind']}")
+701 |                 print(f"  File: {focus['file_id']}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:704:23
+    |
+702 |                 print(f"  Scope: {focus['scope']}")
+703 |
+704 |                 print(f"\nStructural Relationships:")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+705 |                 if context.structural_parent:
+706 |                     print(f"  Parent: {context.structural_parent['qualified_name']} ({context.structural_parent['kind']})")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:708:27
+    |
+706 |                     print(f"  Parent: {context.structural_parent['qualified_name']} ({context.structural_parent['kind']})")
+707 |                 else:
+708 |                     print(f"  Parent: None")
+    |                           ^^^^^^^^^^^^^^^^^
+709 |                 
+710 |                 if context.structural_children:
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:717:27
+    |
+715 |                         print(f"    ... and {len(context.structural_children) - 10} more")
+716 |                 else:
+717 |                     print(f"  Children: None")
+    |                           ^^^^^^^^^^^^^^^^^^^
+718 |
+719 |                 print(f"\nLexical Relationships:")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:719:23
+    |
+717 |                     print(f"  Children: None")
+718 |
+719 |                 print(f"\nLexical Relationships:")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+720 |                 if context.lexical_parent:
+721 |                     print(f"  Parent: {context.lexical_parent['qualified_name']} ({context.lexical_parent['kind']})")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:723:27
+    |
+721 |                     print(f"  Parent: {context.lexical_parent['qualified_name']} ({context.lexical_parent['kind']})")
+722 |                 else:
+723 |                     print(f"  Parent: None")
+    |                           ^^^^^^^^^^^^^^^^^
+724 |                 
+725 |                 if context.lexical_children:
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:732:27
+    |
+730 |                         print(f"    ... and {len(context.lexical_children) - 10} more")
+731 |                 else:
+732 |                     print(f"  Children: None")
+    |                           ^^^^^^^^^^^^^^^^^^^
+733 |
+734 |                 print(f"\nIncoming Edges ({len(context.incoming_edges)}):")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/cli/main.py:761:23
+    |
+759 |                     print("  (none)")
+760 |
+761 |                 print(f"\nSummary:")
+    |                       ^^^^^^^^^^^^^
+762 |                 summary = context.structural_summary
+763 |                 print(f"  - Has structural parent: {'Yes' if summary['has_structural_parent'] else 'No'}")
+    |
+help: Remove extraneous `f` prefix
+
+F841 Local variable `file_path` is assigned to but never used
+   --> src/repo_context/cli/main.py:899:13
+    |
+897 |             # Get repo root from file path
+898 |             from pathlib import Path
+899 |             file_path = Path(file_record["file_path"])
+    |             ^^^^^^^^^
+900 |             repo_root = str(Path.cwd())  # Use current working directory as repo root
+    |
+help: Remove assignment to unused variable `file_path`
+
+F841 [*] Local variable `exc` is assigned to but never used
+    --> src/repo_context/cli/main.py:1120:25
+     |
+1118 |         finally:
+1119 |             close_connection(conn)
+1120 |     except Exception as exc:
+     |                         ^^^
+1121 |         logger.exception("cmd_show_node: Failed to show node")
+1122 |         raise
+     |
+help: Remove assignment to unused variable `exc`
+
+F841 [*] Local variable `exc` is assigned to but never used
+    --> src/repo_context/cli/main.py:1184:25
+     |
+1182 |         finally:
+1183 |             close_connection(conn)
+1184 |     except Exception as exc:
+     |                         ^^^
+1185 |         logger.exception("cmd_risk_symbol: Failed to analyze symbol risk")
+1186 |         raise
+     |
+help: Remove assignment to unused variable `exc`
+
+F841 [*] Local variable `exc` is assigned to but never used
+    --> src/repo_context/cli/main.py:1246:25
+     |
+1244 |         finally:
+1245 |             close_connection(conn)
+1246 |     except Exception as exc:
+     |                         ^^^
+1247 |         logger.exception("cmd_risk_targets: Failed to analyze target set risk")
+1248 |         raise
+     |
+help: Remove assignment to unused variable `exc`
+
+F841 Local variable `repo_id` is assigned to but never used
+    --> src/repo_context/cli/main.py:1335:9
+     |
+1333 |     conn = get_connection_for_args(args)
+1334 |     try:
+1335 |         repo_id = args.repo_id
+     |         ^^^^^^^
+1336 |         file_path = args.file_path
+1337 |         file_record = get_file_by_id(conn, f"file:{file_path}")
+     |
+help: Remove assignment to unused variable `repo_id`
+
+F401 [*] `repo_context.indexing.events.FileChangeEvent` imported but unused
+    --> src/repo_context/cli/main.py:2096:46
+     |
+2094 |         Exit code (0 for success, 1 for failure).
+2095 |     """
+2096 |     from repo_context.indexing.events import FileChangeEvent, normalize_event
+     |                                              ^^^^^^^^^^^^^^^
+2097 |
+2098 |     class _FakeEvent:
+     |
+help: Remove unused import: `repo_context.indexing.events.FileChangeEvent`
+
+F541 [*] f-string without any placeholders
+    --> src/repo_context/cli/main.py:2143:23
+     |
+2141 |         else:
+2142 |             if data.get("skipped"):
+2143 |                 print(f"\nEvent normalized: SKIPPED")
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2144 |                 print(f"  Reason: {data['reason']}")
+2145 |             else:
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> src/repo_context/cli/main.py:2146:23
+     |
+2144 |                 print(f"  Reason: {data['reason']}")
+2145 |             else:
+2146 |                 print(f"\nEvent normalized:")
+     |                       ^^^^^^^^^^^^^^^^^^^^^^
+2147 |                 print(f"  Type: {data['event_type']}")
+2148 |                 print(f"  Path: {data['repo_relative_path']}")
+     |
+help: Remove extraneous `f` prefix
+
+F401 [*] `typing.Any` imported but unused
+ --> src/repo_context/context/builders.py:4:20
+  |
+3 | import sqlite3
+4 | from typing import Any
+  |                    ^^^
+5 |
+6 | from repo_context.models import SymbolContext
+  |
+help: Remove unused import: `typing.Any`
+
+F401 [*] `repo_context.context.helpers.PLACEHOLDER_PREFIXES` imported but unused
+  --> src/repo_context/context/builders.py:20:42
+   |
+18 | from repo_context.context.summaries import build_structural_summary, build_confidence
+19 | from repo_context.context.freshness import build_freshness
+20 | from repo_context.context.helpers import PLACEHOLDER_PREFIXES
+   |                                          ^^^^^^^^^^^^^^^^^^^^
+   |
+help: Remove unused import: `repo_context.context.helpers.PLACEHOLDER_PREFIXES`
+
+F401 [*] `typing.Any` imported but unused
+ --> src/repo_context/context/freshness.py:3:20
+  |
+1 | """Freshness metadata for symbol context."""
+2 |
+3 | from typing import Any
+  |                    ^^^
+4 |
+5 | from repo_context.models import SymbolContext
+  |
+help: Remove unused import: `typing.Any`
+
+F841 Local variable `all_edges` is assigned to but never used
+  --> src/repo_context/context/freshness.py:19:5
+   |
+17 |     """
+18 |     # Get latest edge timestamp if edges exist
+19 |     all_edges = context.incoming_edges + context.outgoing_edges
+   |     ^^^^^^^^^
+20 |     edge_timestamps = []
+   |
+help: Remove assignment to unused variable `all_edges`
+
+F841 Local variable `edge_timestamps` is assigned to but never used
+  --> src/repo_context/context/freshness.py:20:5
+   |
+18 |     # Get latest edge timestamp if edges exist
+19 |     all_edges = context.incoming_edges + context.outgoing_edges
+20 |     edge_timestamps = []
+   |     ^^^^^^^^^^^^^^^
+21 |     
+22 |     # Note: edges don't have last_indexed_at exposed in adapted form
+   |
+help: Remove assignment to unused variable `edge_timestamps`
+
+F401 `repo_context.graph.risk_rules.ISSUE_MODERATE_REFERENCE_COUNT` imported but unused; consider removing, adding to `__all__`, or using a redundant alias
+  --> src/repo_context/graph/__init__.py:38:5
+   |
+36 |     ISSUE_LOW_CONFIDENCE_MATCH,
+37 |     ISSUE_HIGH_REFERENCE_COUNT,
+38 |     ISSUE_MODERATE_REFERENCE_COUNT,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+39 |     ISSUE_CROSS_FILE_IMPACT,
+40 |     ISSUE_CROSS_MODULE_IMPACT,
+   |
+help: Add unused import `ISSUE_MODERATE_REFERENCE_COUNT` to __all__
+
+F401 [*] `typing.Any` imported but unused
+ --> src/repo_context/graph/filters.py:3:20
+  |
+1 | """Graph filtering helpers."""
+2 |
+3 | from typing import Any
+  |                    ^^^
+  |
+help: Remove unused import: `typing.Any`
+
+F401 [*] `repo_context.storage.nodes.list_nodes_for_repo` imported but unused
+  --> src/repo_context/graph/queries.py:9:5
+   |
+ 7 |     get_node_by_qualified_name,
+ 8 |     list_nodes_for_file,
+ 9 |     list_nodes_for_repo,
+   |     ^^^^^^^^^^^^^^^^^^^
+10 |     list_child_nodes,
+11 |     list_lexical_children,
+   |
+help: Remove unused import: `repo_context.storage.nodes.list_nodes_for_repo`
+
+F401 [*] `repo_context.storage.edges.get_edge_by_id` imported but unused
+  --> src/repo_context/graph/queries.py:15:5
+   |
+13 | )
+14 | from repo_context.storage.edges import (
+15 |     get_edge_by_id,
+   |     ^^^^^^^^^^^^^^
+16 |     list_edges_for_repo,
+17 |     list_outgoing_edges,
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.storage.edges.list_edges_for_repo` imported but unused
+  --> src/repo_context/graph/queries.py:16:5
+   |
+14 | from repo_context.storage.edges import (
+15 |     get_edge_by_id,
+16 |     list_edges_for_repo,
+   |     ^^^^^^^^^^^^^^^^^^^
+17 |     list_outgoing_edges,
+18 |     list_incoming_edges,
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.storage.edges.list_edges_for_file` imported but unused
+  --> src/repo_context/graph/queries.py:19:5
+   |
+17 |     list_outgoing_edges,
+18 |     list_incoming_edges,
+19 |     list_edges_for_file,
+   |     ^^^^^^^^^^^^^^^^^^^
+20 | )
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.graph.risk_types.RiskTarget` imported but unused
+  --> src/repo_context/graph/risk_engine.py:10:43
+   |
+ 8 | import sqlite3
+ 9 |
+10 | from repo_context.graph.risk_types import RiskTarget, RiskFacts, RiskResult
+   |                                           ^^^^^^^^^^
+11 | from repo_context.graph.risk_targets import load_risk_targets
+12 | from repo_context.graph.risk_facts import build_risk_facts
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.graph.risk_types.RiskFacts` imported but unused
+  --> src/repo_context/graph/risk_engine.py:10:55
+   |
+ 8 | import sqlite3
+ 9 |
+10 | from repo_context.graph.risk_types import RiskTarget, RiskFacts, RiskResult
+   |                                                       ^^^^^^^^^
+11 | from repo_context.graph.risk_targets import load_risk_targets
+12 | from repo_context.graph.risk_facts import build_risk_facts
+   |
+help: Remove unused import
+
+F401 [*] `json` imported but unused
+  --> src/repo_context/graph/risk_facts.py:11:8
+   |
+10 | import sqlite3
+11 | import json
+   |        ^^^^
+12 |
+13 | from repo_context.graph.risk_types import RiskTarget, RiskFacts
+   |
+help: Remove unused import: `json`
+
+F401 [*] `repo_context.models.file.FileRecord` imported but unused
+  --> src/repo_context/indexing/incremental.py:17:38
+   |
+15 |     replace_file_graph,
+16 | )
+17 | from repo_context.models.file import FileRecord
+   |                                      ^^^^^^^^^^
+18 | from repo_context.indexing.invalidation import (
+19 |     mark_symbols_in_file_stale,
+   |
+help: Remove unused import: `repo_context.models.file.FileRecord`
+
+F401 [*] `time` imported but unused
+  --> src/repo_context/indexing/scheduler.py:8:8
+   |
+ 7 | import threading
+ 8 | import time
+   |        ^^^^
+ 9 | from collections import defaultdict
+10 | from typing import Callable
+   |
+help: Remove unused import: `time`
+
+F401 [*] `sqlite3` imported but unused
+ --> src/repo_context/indexing/watch.py:7:8
+  |
+5 | """
+6 |
+7 | import sqlite3
+  |        ^^^^^^^
+8 | import sys
+9 | import time
+  |
+help: Remove unused import: `sqlite3`
+
+F401 [*] `json` imported but unused
+ --> src/repo_context/lsp/resolver.py:3:8
+  |
+1 | """LSP query position resolver and file URI lookup."""
+2 |
+3 | import json
+  |        ^^^^
+  |
+help: Remove unused import: `json`
+
+F811 [*] Redefinition of unused `json` from line 3
+  --> src/repo_context/lsp/resolver.py:21:12
+   |
+19 |         ValueError: If symbol has no usable range information.
+20 |     """
+21 |     import json
+   |            ^^^^ `json` redefined here
+22 |     
+23 |     # Support both dict and object attribute access
+   |
+  ::: src/repo_context/lsp/resolver.py:3:8
+   |
+ 1 | """LSP query position resolver and file URI lookup."""
+ 2 |
+ 3 | import json
+   |        ---- previous definition of `json` here
+   |
+help: Remove definition: `json`
+
+F841 Local variable `payload` is assigned to but never used
+   --> src/repo_context/mcp/tools.py:166:9
+    |
+164 |             return json.dumps(error_result(ERROR_REFERENCES_UNAVAILABLE, f"File not found for symbol: {symbol['file_id']}"))
+165 |
+166 |         payload = json.loads(symbol.get("payload_json", "{}")) if symbol.get("payload_json") else {}
+    |         ^^^^^^^
+167 |         target_symbol = {
+168 |             "id": symbol["id"],
+    |
+help: Remove assignment to unused variable `payload`
+
+F401 [*] `repo_context.constants.VALID_EDGE_KINDS` imported but unused
+ --> src/repo_context/models/edge.py:9:36
+  |
+7 | from pydantic import BaseModel, Field, field_validator
+8 |
+9 | from repo_context.constants import VALID_EDGE_KINDS
+  |                                    ^^^^^^^^^^^^^^^^
+  |
+help: Remove unused import: `repo_context.constants.VALID_EDGE_KINDS`
+
+F401 [*] `repo_context.constants.VALID_SYMBOL_KINDS` imported but unused
+  --> src/repo_context/models/node.py:10:5
+   |
+ 9 | from repo_context.constants import (
+10 |     VALID_SYMBOL_KINDS,
+   |     ^^^^^^^^^^^^^^^^^^
+11 |     VALID_SCOPES,
+12 | )
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.constants.VALID_SCOPES` imported but unused
+  --> src/repo_context/models/node.py:11:5
+   |
+ 9 | from repo_context.constants import (
+10 |     VALID_SYMBOL_KINDS,
+11 |     VALID_SCOPES,
+   |     ^^^^^^^^^^^^
+12 | )
+   |
+help: Remove unused import
+
+F401 [*] `typing.Optional` imported but unused
+ --> src/repo_context/parsing/callable_extractor.py:5:20
+  |
+3 | import ast
+4 | import json
+5 | from typing import Optional
+  |                    ^^^^^^^^
+6 |
+7 | from repo_context.models.file import FileRecord
+  |
+help: Remove unused import: `typing.Optional`
+
+F841 Local variable `kind` is assigned to but never used
+   --> src/repo_context/parsing/callable_extractor.py:190:9
+    |
+188 |         kind = "async_method" if is_async else "method"
+189 |     else:
+190 |         kind = "local_async_function" if is_async else "local_function"
+    |         ^^^^
+191 |
+192 |     # Use context manager to ensure stack stays balanced
+    |
+help: Remove assignment to unused variable `kind`
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/parsing/class_extractor.py:229:21
+    |
+228 |     hash_obj = hashlib.sha256()
+229 |     hash_obj.update(f"kind:class".encode())
+    |                     ^^^^^^^^^^^^^
+230 |     hash_obj.update(f"qualified_name:{qualified_name}".encode())
+231 |     hash_obj.update(f"bases:{sorted(base_names)}".encode())
+    |
+help: Remove extraneous `f` prefix
+
+F401 [*] `repo_context.parsing.ranges.make_range` imported but unused
+  --> src/repo_context/parsing/module_extractor.py:9:41
+   |
+ 7 | from repo_context.models.file import FileRecord
+ 8 | from repo_context.parsing.naming import build_module_qualified_name, DuplicateTracker
+ 9 | from repo_context.parsing.ranges import make_range
+   |                                         ^^^^^^^^^^
+10 | from repo_context.parsing.docstrings import get_doc_summary
+11 | from repo_context.parsing.scope_tracker import ScopeTracker
+   |
+help: Remove unused import: `repo_context.parsing.ranges.make_range`
+
+F401 [*] `typing.Optional` imported but unused
+ --> src/repo_context/parsing/naming.py:3:20
+  |
+1 | """Naming helpers for building symbol IDs and qualified names."""
+2 |
+3 | from typing import Optional
+  |                    ^^^^^^^^
+  |
+help: Remove unused import: `typing.Optional`
+
+F401 [*] `repo_context.parsing.naming.build_module_qualified_name` imported but unused
+  --> src/repo_context/parsing/pipeline.py:15:41
+   |
+13 | from repo_context.parsing.import_extractor import extract_import_edges_and_payload
+14 | from repo_context.parsing.inheritance_extractor import extract_inheritance_edges
+15 | from repo_context.parsing.naming import build_module_qualified_name, DuplicateTracker
+   |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 | from repo_context.parsing.scope_tracker import ScopeTracker
+   |
+help: Remove unused import: `repo_context.parsing.naming.build_module_qualified_name`
+
+F541 [*] f-string without any placeholders
+   --> src/repo_context/parsing/pipeline.py:318:33
+    |
+316 |         True if method belongs to class.
+317 |     """
+318 |     return method_id.startswith(f"sym:") and class_qualified_name in method_id
+    |                                 ^^^^^^^
+    |
+help: Remove extraneous `f` prefix
+
+F401 [*] `repo_context.validation.contracts.validate_field_types` imported but unused
+  --> src/repo_context/validation/context_checks.py:11:5
+   |
+ 9 | from repo_context.validation.contracts import (
+10 |     validate_required_fields,
+11 |     validate_field_types,
+   |     ^^^^^^^^^^^^^^^^^^^^
+12 |     validate_stable_id,
+13 | )
+   |
+help: Remove unused import: `repo_context.validation.contracts.validate_field_types`
+
+F401 [*] `repo_context.graph.queries.get_repo_graph_stats` imported but unused
+  --> src/repo_context/validation/graph_checks.py:10:5
+   |
+ 9 | from repo_context.graph.queries import (
+10 |     get_repo_graph_stats,
+   |     ^^^^^^^^^^^^^^^^^^^^
+11 |     CALLABLE_KINDS,
+12 |     LOCAL_CALLABLE_KINDS,
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.graph.queries.LOCAL_CALLABLE_KINDS` imported but unused
+  --> src/repo_context/validation/graph_checks.py:12:5
+   |
+10 |     get_repo_graph_stats,
+11 |     CALLABLE_KINDS,
+12 |     LOCAL_CALLABLE_KINDS,
+   |     ^^^^^^^^^^^^^^^^^^^^
+13 | )
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.validation.contracts.validate_field_types` imported but unused
+  --> src/repo_context/validation/mcp_checks.py:11:5
+   |
+ 9 | from repo_context.validation.contracts import (
+10 |     validate_required_fields,
+11 |     validate_field_types,
+   |     ^^^^^^^^^^^^^^^^^^^^
+12 | )
+   |
+help: Remove unused import: `repo_context.validation.contracts.validate_field_types`
+
+F401 [*] `repo_context.validation.contracts.validate_field_types` imported but unused
+  --> src/repo_context/validation/reference_checks.py:11:5
+   |
+ 9 | from repo_context.validation.contracts import (
+10 |     validate_required_fields,
+11 |     validate_field_types,
+   |     ^^^^^^^^^^^^^^^^^^^^
+12 |     validate_stable_id,
+13 |     validate_nested_list,
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.validation.contracts.validate_stable_id` imported but unused
+  --> src/repo_context/validation/reference_checks.py:12:5
+   |
+10 |     validate_required_fields,
+11 |     validate_field_types,
+12 |     validate_stable_id,
+   |     ^^^^^^^^^^^^^^^^^^
+13 |     validate_nested_list,
+14 | )
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.validation.contracts.validate_nested_list` imported but unused
+  --> src/repo_context/validation/reference_checks.py:13:5
+   |
+11 |     validate_field_types,
+12 |     validate_stable_id,
+13 |     validate_nested_list,
+   |     ^^^^^^^^^^^^^^^^^^^^
+14 | )
+   |
+help: Remove unused import
+
+F401 [*] `repo_context.validation.contracts.validate_field_types` imported but unused
+  --> src/repo_context/validation/risk_checks.py:11:5
+   |
+ 9 | from repo_context.validation.contracts import (
+10 |     validate_required_fields,
+11 |     validate_field_types,
+   |     ^^^^^^^^^^^^^^^^^^^^
+12 |     validate_enum_values,
+13 | )
+   |
+help: Remove unused import: `repo_context.validation.contracts.validate_field_types`
+
+F401 [*] `json` imported but unused
+ --> src/repo_context/validation/workflow.py:7:8
+  |
+5 | """
+6 |
+7 | import json
+  |        ^^^^
+8 | import sqlite3
+9 | from dataclasses import dataclass, field
+  |
+help: Remove unused import: `json`
+
+F401 [*] `repo_context.graph.analyze_target_set_risk` imported but unused
+  --> src/repo_context/validation/workflow.py:18:5
+   |
+16 |     list_reference_edges_for_target,
+17 |     analyze_symbol_risk,
+18 |     analyze_target_set_risk,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+19 | )
+20 | from repo_context.context import build_symbol_context
+   |
+help: Remove unused import: `repo_context.graph.analyze_target_set_risk`
+
+F401 [*] `repo_context.validation.graph_checks.assert_file_nodes_exist` imported but unused
+  --> src/repo_context/validation/workflow.py:26:5
+   |
+25 | from repo_context.validation.graph_checks import (
+26 |     assert_file_nodes_exist,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+27 |     assert_module_nodes_exist,
+28 |     assert_expected_symbol_kinds,
+   |
+help: Remove unused import: `repo_context.validation.graph_checks.assert_file_nodes_exist`
+
+F401 [*] `repo_context.validation.mcp_checks.assert_tool_result_shape` imported but unused
+  --> src/repo_context/validation/workflow.py:44:5
+   |
+42 | )
+43 | from repo_context.validation.mcp_checks import (
+44 |     assert_tool_result_shape,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+45 |     assert_resolve_symbol_payload,
+46 |     assert_symbol_context_payload,
+   |
+help: Remove unused import: `repo_context.validation.mcp_checks.assert_tool_result_shape`
+
+Found 71 errors.
+[*] 61 fixable with the `--fix` option (9 hidden fixes can be enabled with the `--unsafe-fixes` option).

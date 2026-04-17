@@ -1,8 +1,8 @@
 """Callable node extraction from Python AST."""
 
 import ast
+import typing
 import json
-from typing import Optional
 
 from repo_context.models.file import FileRecord
 from repo_context.parsing.naming import (
@@ -13,6 +13,8 @@ from repo_context.parsing.naming import (
 from repo_context.parsing.ranges import make_range, make_name_selection_range
 from repo_context.parsing.docstrings import get_doc_summary
 from repo_context.parsing.scope_tracker import ScopeTracker
+import repo_context.parsing.class_extractor
+import hashlib
 
 
 def extract_callable_nodes(
@@ -20,7 +22,7 @@ def extract_callable_nodes(
     file_record: FileRecord,
     parent_id: str,
     parent_qualified_name: str,
-    nodes: list[ast.AST],
+    nodes: "typing.Sequence[ast.AST]",
     scope_tracker: ScopeTracker,
     duplicate_tracker: DuplicateTracker,
     module_path: str,
@@ -152,7 +154,7 @@ def _extract_nested_declarations(
     file_record: FileRecord,
     parent_id: str,
     parent_qualified_name: str,
-    func_node: ast.AST,
+    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
     scope_tracker: ScopeTracker,
     duplicate_tracker: DuplicateTracker,
     module_path: str,
@@ -174,28 +176,19 @@ def _extract_nested_declarations(
         List of nested declaration nodes.
     """
     # Import here to avoid circular import
-    from repo_context.parsing.class_extractor import extract_class_nodes
+    extract_class_nodes = repo_context.parsing.class_extractor.extract_class_nodes
 
     nested = []
 
-    # Determine kind for scope tracker
-    is_async = isinstance(func_node, ast.AsyncFunctionDef)
-    current_scope = scope_tracker.get_current_scope()
-
-    if current_scope == "module":
-        kind = "async_function" if is_async else "function"
-    elif current_scope == "class":
-        kind = "async_method" if is_async else "method"
-    else:
-        kind = "local_async_function" if is_async else "local_function"
+    func_name = getattr(func_node, "name", "<unknown>")
 
     # Use context manager to ensure stack stays balanced
-    with scope_tracker.scope_context(parent_id, func_node.name, "function"):
+    with scope_tracker.scope_context(parent_id, func_name, "function"):
         # Build qualified name for this function (using parent's qualified name, not scope tracker)
         if parent_qualified_name:
-            func_qualified_name = f"{parent_qualified_name}.{func_node.name}"
+            func_qualified_name = f"{parent_qualified_name}.{func_name}"
         else:
-            func_qualified_name = f"{module_path}.{func_node.name}"
+            func_qualified_name = f"{module_path}.{func_name}"
         
         # Extract nested declarations from function body
         for stmt in func_node.body:
@@ -356,7 +349,6 @@ def _compute_callable_semantic_hash(
     Returns:
         SHA-256 hash with prefix.
     """
-    import hashlib
 
     hash_obj = hashlib.sha256()
     hash_obj.update(f"kind:{kind}".encode())

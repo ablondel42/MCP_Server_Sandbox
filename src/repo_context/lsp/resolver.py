@@ -18,7 +18,6 @@ def get_reference_query_position(symbol) -> dict:
     Raises:
         ValueError: If symbol has no usable range information.
     """
-    import json
     
     # Support both dict and object attribute access
     if isinstance(symbol, dict):

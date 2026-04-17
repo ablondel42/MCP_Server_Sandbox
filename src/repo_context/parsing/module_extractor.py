@@ -6,7 +6,6 @@ from pathlib import Path
 
 from repo_context.models.file import FileRecord
 from repo_context.parsing.naming import build_module_qualified_name, DuplicateTracker
-from repo_context.parsing.ranges import make_range
 from repo_context.parsing.docstrings import get_doc_summary
 from repo_context.parsing.scope_tracker import ScopeTracker
 

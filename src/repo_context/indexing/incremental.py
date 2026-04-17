@@ -14,7 +14,6 @@ from repo_context.storage import (
     upsert_files,
     replace_file_graph,
 )
-from repo_context.models.file import FileRecord
 from repo_context.indexing.invalidation import (
     mark_symbols_in_file_stale,
     invalidate_reference_summaries_for_file,

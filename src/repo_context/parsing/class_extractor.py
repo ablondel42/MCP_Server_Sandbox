@@ -13,6 +13,8 @@ from repo_context.parsing.naming import (
 from repo_context.parsing.ranges import make_range, make_name_selection_range
 from repo_context.parsing.docstrings import get_doc_summary
 from repo_context.parsing.scope_tracker import ScopeTracker
+import repo_context.parsing.callable_extractor
+import hashlib
 
 
 def extract_class_nodes(
@@ -169,7 +171,7 @@ def _extract_methods_from_class(
         Tuple of (method nodes list, contains edges list).
     """
     # Import here to avoid circular import
-    from repo_context.parsing.callable_extractor import extract_callable_nodes
+    extract_callable_nodes = repo_context.parsing.callable_extractor.extract_callable_nodes
 
     methods = []
     contains_edges = []
@@ -223,10 +225,9 @@ def _compute_class_semantic_hash(qualified_name: str, base_names: list[str], dec
     Returns:
         SHA-256 hash with prefix.
     """
-    import hashlib
 
     hash_obj = hashlib.sha256()
-    hash_obj.update(f"kind:class".encode())
+    hash_obj.update("kind:class".encode())
     hash_obj.update(f"qualified_name:{qualified_name}".encode())
     hash_obj.update(f"bases:{sorted(base_names)}".encode())
     hash_obj.update(f"decorators:{sorted(decorators)}".encode())

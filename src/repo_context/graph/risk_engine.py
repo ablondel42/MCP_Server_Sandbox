@@ -7,7 +7,7 @@ Provides the primary API for risk analysis:
 
 import sqlite3
 
-from repo_context.graph.risk_types import RiskTarget, RiskFacts, RiskResult
+from repo_context.graph.risk_types import RiskResult
 from repo_context.graph.risk_targets import load_risk_targets
 from repo_context.graph.risk_facts import build_risk_facts
 from repo_context.graph.risk_rules import detect_risk_issues

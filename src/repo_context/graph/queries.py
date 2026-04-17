@@ -6,17 +6,13 @@ from repo_context.storage.nodes import (
     get_node_by_id,
     get_node_by_qualified_name,
     list_nodes_for_file,
-    list_nodes_for_repo,
     list_child_nodes,
     list_lexical_children,
     find_nodes_by_name,
 )
 from repo_context.storage.edges import (
-    get_edge_by_id,
-    list_edges_for_repo,
     list_outgoing_edges,
     list_incoming_edges,
-    list_edges_for_file,
 )
 
 

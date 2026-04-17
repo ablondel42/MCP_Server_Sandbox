@@ -12,7 +12,7 @@ from repo_context.parsing.class_extractor import extract_class_nodes
 from repo_context.parsing.callable_extractor import extract_callable_nodes
 from repo_context.parsing.import_extractor import extract_import_edges_and_payload
 from repo_context.parsing.inheritance_extractor import extract_inheritance_edges
-from repo_context.parsing.naming import build_module_qualified_name, DuplicateTracker
+from repo_context.parsing.naming import DuplicateTracker
 from repo_context.parsing.scope_tracker import ScopeTracker
 
 
@@ -315,4 +315,4 @@ def _method_belongs_to_class(method_id: str, class_qualified_name: str) -> bool:
     Returns:
         True if method belongs to class.
     """
-    return method_id.startswith(f"sym:") and class_qualified_name in method_id
+    return method_id.startswith("sym:") and class_qualified_name in method_id

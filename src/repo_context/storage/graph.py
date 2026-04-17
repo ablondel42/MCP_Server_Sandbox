@@ -45,10 +45,10 @@ def replace_file_graph(
         delete_nodes_for_file(conn, file_id)
 
         # Insert fresh nodes
-        upsert_nodes(conn, nodes)
+        upsert_nodes(conn, nodes)  # type: ignore
 
         # Insert fresh edges
-        upsert_edges(conn, edges)
+        upsert_edges(conn, edges)  # type: ignore
 
         conn.commit()
     except Exception:

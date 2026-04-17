@@ -8,6 +8,7 @@ Provides functions to:
 import sqlite3
 
 from repo_context.graph.risk_types import RiskTarget
+import json
 
 
 def load_risk_targets(conn: sqlite3.Connection, symbol_ids: list[str]) -> list[RiskTarget]:
@@ -50,7 +51,6 @@ def load_risk_targets(conn: sqlite3.Connection, symbol_ids: list[str]) -> list[R
             raise ValueError(f"Symbol not found: {symbol_id}")
 
         # Extract file path and module path from payload_json
-        import json
         payload = json.loads(row["payload_json"]) if row["payload_json"] else {}
         file_path = payload.get("file_path", "")
         module_path = payload.get("module_path", "")

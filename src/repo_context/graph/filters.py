@@ -1,6 +1,5 @@
 """Graph filtering helpers."""
 
-from typing import Any
 
 
 CALLABLE_KINDS = {

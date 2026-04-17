@@ -8,7 +8,6 @@ from typing import Any
 
 from repo_context.validation.contracts import (
     validate_required_fields,
-    validate_field_types,
     validate_enum_values,
 )
 

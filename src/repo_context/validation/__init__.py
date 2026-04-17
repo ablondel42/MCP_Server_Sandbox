@@ -13,23 +13,10 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
-    """Lazy import to avoid circular dependencies."""
-    if name in ("run_full_workflow_validation", "run_symbol_workflow_validation",
-                "run_mcp_workflow_validation", "run_watch_workflow_validation",
-                "ValidationResult"):
-        from repo_context.validation.workflow import (
-            run_full_workflow_validation,
-            run_symbol_workflow_validation,
-            run_mcp_workflow_validation,
-            run_watch_workflow_validation,
-            ValidationResult,
-        )
-        return {
-            "run_full_workflow_validation": run_full_workflow_validation,
-            "run_symbol_workflow_validation": run_symbol_workflow_validation,
-            "run_mcp_workflow_validation": run_mcp_workflow_validation,
-            "run_watch_workflow_validation": run_watch_workflow_validation,
-            "ValidationResult": ValidationResult,
-        }[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+from repo_context.validation.workflow import (
+    run_full_workflow_validation,
+    run_symbol_workflow_validation,
+    run_mcp_workflow_validation,
+    run_watch_workflow_validation,
+    ValidationResult,
+)

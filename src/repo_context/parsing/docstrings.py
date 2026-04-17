@@ -9,6 +9,8 @@ TRUNCATION_SUFFIX = "..."
 
 
 def get_doc_summary(node: ast.AST) -> str | None:
+    if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef, ast.ClassDef, ast.Module)):
+        return None
     """Extract a short summary from a node's docstring.
 
     Args:

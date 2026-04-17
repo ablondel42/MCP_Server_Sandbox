@@ -25,9 +25,9 @@ class ScopeContext:
         self.tracker.push_declaration(self.symbol_id, self.name, self.scope)
         return self.tracker
     
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.tracker.pop_declaration()
-        return False  # Don't suppress exceptions
+        # Don't suppress exceptions
 
 
 class ScopeTracker:

@@ -8,7 +8,6 @@ from typing import Any
 
 from repo_context.validation.contracts import (
     validate_required_fields,
-    validate_field_types,
     validate_stable_id,
 )
 
@@ -22,7 +21,7 @@ def assert_context_has_focus_symbol(context: dict[str, Any]) -> dict:
     Returns:
         Dict with 'passed', 'symbol_id', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     symbol = context.get("focus_symbol")
 
     if symbol is None:
@@ -67,7 +66,7 @@ def assert_context_has_structural_relationships(context: dict[str, Any]) -> dict
     Returns:
         Dict with 'passed', 'has_parent', 'children_count', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     missing = validate_required_fields(context, ["structural_parent", "structural_children"])
     errors.extend(missing)
 
@@ -101,7 +100,7 @@ def assert_context_has_lexical_relationships(context: dict[str, Any]) -> dict:
     Returns:
         Dict with 'passed', 'has_lexical_parent', 'lexical_children_count', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     missing = validate_required_fields(context, ["lexical_parent", "lexical_children"])
     errors.extend(missing)
 
@@ -135,7 +134,7 @@ def assert_reference_summary_shape(context: dict[str, Any]) -> dict:
     Returns:
         Dict with 'passed', 'has_references', 'available', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     ref_summary = context.get("reference_summary")
 
     if ref_summary is None:
@@ -170,11 +169,13 @@ def assert_reference_summary_shape(context: dict[str, Any]) -> dict:
     if available is not None and not isinstance(available, bool):
         errors.append(f"reference_summary.available expected bool, got {type(available).__name__}")
 
+    safe_count = count if count is not None else 0
+
     return {
         "check": "reference_summary_shape",
         "passed": len(errors) == 0,
-        "has_references": count > 0,
-        "reference_count": count,
+        "has_references": safe_count > 0,
+        "reference_count": safe_count,
         "available": available,
         "errors": errors,
     }
@@ -189,7 +190,7 @@ def assert_freshness_shape(context: dict[str, Any]) -> dict:
     Returns:
         Dict with 'passed', 'has_freshness', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     freshness = context.get("freshness")
 
     if freshness is None:
@@ -225,7 +226,7 @@ def assert_confidence_shape(context: dict[str, Any]) -> dict:
     Returns:
         Dict with 'passed', 'has_confidence', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     confidence = context.get("confidence")
 
     if confidence is None:
@@ -278,7 +279,7 @@ def assert_context_is_agent_usable(context: dict[str, Any]) -> dict:
     ]
 
     all_passed = all(c["passed"] for c in sub_checks)
-    all_errors = []
+    all_errors: list[str] = []
     for c in sub_checks:
         all_errors.extend(c.get("errors", []))
 

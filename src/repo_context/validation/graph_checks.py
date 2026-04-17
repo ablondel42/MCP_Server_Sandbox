@@ -7,9 +7,7 @@ stored graph truth is structurally usable, not just non-empty.
 import sqlite3
 
 from repo_context.graph.queries import (
-    get_repo_graph_stats,
     CALLABLE_KINDS,
-    LOCAL_CALLABLE_KINDS,
 )
 
 
@@ -24,7 +22,7 @@ def assert_file_nodes_exist(conn: sqlite3.Connection, repo_id: str, file_id: str
     Returns:
         Dict with 'passed', 'node_count', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     cursor = conn.execute(
         "SELECT COUNT(*) as cnt FROM nodes WHERE repo_id = ? AND file_id = ?",
         (repo_id, file_id),
@@ -53,7 +51,7 @@ def assert_module_nodes_exist(conn: sqlite3.Connection, repo_id: str) -> dict:
     Returns:
         Dict with 'passed', 'module_count', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     cursor = conn.execute(
         "SELECT COUNT(*) as cnt FROM nodes WHERE repo_id = ? AND kind = 'module'",
         (repo_id,),
@@ -85,7 +83,7 @@ def assert_expected_symbol_kinds(conn: sqlite3.Connection, repo_id: str) -> dict
     Returns:
         Dict with 'passed', 'kinds_found', 'expected_missing', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     cursor = conn.execute(
         "SELECT DISTINCT kind FROM nodes WHERE repo_id = ?",
         (repo_id,),
@@ -119,7 +117,7 @@ def assert_nested_scope_symbols_present(conn: sqlite3.Connection, repo_id: str) 
     Returns:
         Dict with 'passed', 'local_callable_count', 'has_lexical_parents', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     cursor = conn.execute(
         "SELECT COUNT(*) as cnt FROM nodes WHERE repo_id = ? AND kind IN ('local_function', 'local_async_function')",
         (repo_id,),
@@ -152,7 +150,7 @@ def assert_structural_edges_present(conn: sqlite3.Connection, repo_id: str) -> d
     Returns:
         Dict with 'passed', 'contains_count', 'imports_count', 'inherits_count', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     cursor = conn.execute(
         "SELECT kind, COUNT(*) as cnt FROM edges WHERE repo_id = ? GROUP BY kind",
         (repo_id,),
@@ -189,7 +187,7 @@ def assert_no_duplicate_stable_ids(conn: sqlite3.Connection, repo_id: str) -> di
     Returns:
         Dict with 'passed', 'duplicate_count', 'duplicates', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     cursor = conn.execute(
         """
         SELECT id, COUNT(*) as cnt FROM nodes WHERE repo_id = ?
@@ -224,7 +222,7 @@ def assert_reference_edge_shape(conn: sqlite3.Connection, repo_id: str) -> dict:
     Returns:
         Dict with 'passed', 'reference_count', 'missing_evidence', 'errors'.
     """
-    errors = []
+    errors: list[str] = []
     cursor = conn.execute(
         "SELECT COUNT(*) as cnt FROM edges WHERE repo_id = ? AND kind = 'references'",
         (repo_id,),

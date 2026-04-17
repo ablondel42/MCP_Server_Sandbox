@@ -1,6 +1,5 @@
 """Naming helpers for building symbol IDs and qualified names."""
 
-from typing import Optional
 
 
 class DuplicateTracker:

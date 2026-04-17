@@ -5,7 +5,6 @@ batches events within a debounce window, and emits ready batches.
 """
 
 import threading
-import time
 from collections import defaultdict
 from typing import Callable
 

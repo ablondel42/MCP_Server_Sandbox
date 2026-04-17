@@ -3,6 +3,7 @@
 import json
 import subprocess
 from pathlib import Path
+import shutil
 
 
 class PyrightLspClient:
@@ -25,6 +26,10 @@ class PyrightLspClient:
         """Start the LSP server and initialize."""
         if self._started:
             return
+        executable = self.server_cmd[0]
+        if shutil.which(executable) is None:
+            raise RuntimeError(f"LSP server executable '{executable}' not found in PATH.")
+
         self.proc = subprocess.Popen(
             self.server_cmd,
             stdin=subprocess.PIPE,

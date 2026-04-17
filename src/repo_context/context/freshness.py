@@ -1,6 +1,5 @@
 """Freshness metadata for symbol context."""
 
-from typing import Any
 
 from repo_context.models import SymbolContext
 
@@ -16,8 +15,6 @@ def build_freshness(context: SymbolContext, focus_node: dict) -> dict:
         Dictionary with freshness fields.
     """
     # Get latest edge timestamp if edges exist
-    all_edges = context.incoming_edges + context.outgoing_edges
-    edge_timestamps = []
     
     # Note: edges don't have last_indexed_at exposed in adapted form
     # We use the focus node's timestamp as the primary freshness indicator

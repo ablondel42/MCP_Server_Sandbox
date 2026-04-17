@@ -4,7 +4,6 @@ Provides entry points for running end-to-end validation across
 graph, context, references, risk, and MCP layers.
 """
 
-import json
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,7 +14,6 @@ from repo_context.graph import (
     get_repo_graph_stats,
     list_reference_edges_for_target,
     analyze_symbol_risk,
-    analyze_target_set_risk,
 )
 from repo_context.context import build_symbol_context
 from repo_context.mcp.adapters import adapt_context, adapt_risk_result
@@ -23,7 +21,6 @@ from repo_context.indexing.incremental import reindex_changed_file, handle_delet
 from repo_context.config import AppConfig
 
 from repo_context.validation.graph_checks import (
-    assert_file_nodes_exist,
     assert_module_nodes_exist,
     assert_expected_symbol_kinds,
     assert_nested_scope_symbols_present,
@@ -41,12 +38,12 @@ from repo_context.validation.risk_checks import (
     assert_risk_is_agent_usable,
 )
 from repo_context.validation.mcp_checks import (
-    assert_tool_result_shape,
     assert_resolve_symbol_payload,
     assert_symbol_context_payload,
     assert_symbol_references_payload,
     assert_risk_payload,
 )
+from dataclasses import asdict
 
 
 @dataclass
@@ -447,7 +444,6 @@ def _context_to_dict(context) -> dict[str, Any]:
     if hasattr(context, "model_dump"):
         return context.model_dump()
     # Fallback: handle dataclass
-    from dataclasses import asdict
     return asdict(context)
 
 
@@ -463,7 +459,6 @@ def _risk_to_dict(risk_result) -> dict[str, Any]:
     if isinstance(risk_result, dict):
         return risk_result
     # Handle dataclass
-    from dataclasses import asdict
     return asdict(risk_result)
 
 

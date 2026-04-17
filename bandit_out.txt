@@ -1,0 +1,148 @@
+Working... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:00
+Run started:2026-04-16 08:45:03.733805+00:00
+
+Test results:
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/repo_context/cli/main.py:140:24
+139	                            client.did_open(file_record.uri, text)
+140	                        except Exception:
+141	                            pass
+142	                
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/repo_context/cli/main.py:1486:18
+1485	            cursor = conn.execute(
+1486	                f"SELECT * FROM nodes WHERE file_id = ? AND kind IN ({placeholders})",
+1487	                [file_id] + kinds,
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/repo_context/graph/risk_facts.py:215:12
+214	    cursor = conn.execute(
+215	        f"""
+216	        SELECT id, confidence FROM edges
+217	        WHERE kind = 'references' AND to_id IN ({placeholders})
+218	        ORDER BY id
+219	        """,
+220	        target_ids,
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/repo_context/indexing/invalidation.py:36:12
+35	    conn.execute(
+36	        f"""
+37	        INSERT OR REPLACE INTO reference_refresh (target_symbol_id, available, last_refreshed_at)
+38	        SELECT id, 0, NULL
+39	        FROM nodes
+40	        WHERE id IN ({placeholders})
+41	        AND id NOT IN (
+42	            SELECT target_symbol_id FROM reference_refresh
+43	            WHERE target_symbol_id IN ({placeholders})
+44	        )
+45	        """,
+46	        symbol_ids + symbol_ids,
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/repo_context/indexing/invalidation.py:51:12
+50	    conn.execute(
+51	        f"""
+52	        UPDATE reference_refresh
+53	        SET available = 0, last_refreshed_at = NULL
+54	        WHERE target_symbol_id IN ({placeholders})
+55	        """,
+56	        symbol_ids,
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: src/repo_context/lsp/client.py:4:0
+3	import json
+4	import subprocess
+5	from pathlib import Path
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/repo_context/lsp/client.py:28:20
+27	            return
+28	        self.proc = subprocess.Popen(
+29	            self.server_cmd,
+30	            stdin=subprocess.PIPE,
+31	            stdout=subprocess.PIPE,
+32	            stderr=subprocess.PIPE,
+33	        )
+34	        self.request(
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: src/repo_context/lsp/client.py:55:8
+54	        header = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+55	        assert self.proc and self.proc.stdin
+56	        self.proc.stdin.write(header + body)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: src/repo_context/lsp/client.py:61:8
+60	        """Read a JSON-RPC message from stdout."""
+61	        assert self.proc and self.proc.stdout
+62	        headers = b""
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/repo_context/storage/files.py:106:8
+105	    conn.execute(
+106	        """
+107	        DELETE FROM files
+108	        WHERE repo_id = ? AND file_path NOT IN ({})
+109	        """.format(",".join("?" * len(keep_paths))),
+110	        (repo_id, *keep_paths),
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 10619
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 5
+		Medium: 5
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 5
+		High: 5
+Files skipped (0):

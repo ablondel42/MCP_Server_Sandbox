@@ -8,7 +8,6 @@ Provides functions to extract deterministic facts from stored graph data:
 """
 
 import sqlite3
-import json
 
 from repo_context.graph.risk_types import RiskTarget, RiskFacts
 from repo_context.graph.risk_targets import is_public_like

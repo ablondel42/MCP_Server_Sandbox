@@ -4,7 +4,6 @@ Sets up watchdog observer, routes raw events through normalization
 and scheduler, and processes incremental updates.
 """
 
-import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -18,6 +17,7 @@ from repo_context.logging_config import get_logger
 from repo_context.indexing.events import normalize_event, FileChangeEvent
 from repo_context.indexing.scheduler import EventScheduler
 from repo_context.indexing.incremental import process_event_batch
+import pathlib
 
 logger = get_logger("indexing.watch")
 
@@ -105,7 +105,7 @@ def watch_repo(
     })
 
     # Initialize database
-    conn = get_connection(db_path or cfg.db_path)
+    conn = get_connection(pathlib.Path(db_path or cfg.db_path))
     try:
         initialize_database(conn)
     finally:
@@ -146,7 +146,7 @@ def watch_repo(
 def conn_factory(db_path: str | None = None):
     """Create a database connection for batch processing."""
     config = get_config()
-    conn = get_connection(db_path or config.db_path)
+    conn = get_connection(pathlib.Path(db_path or config.db_path))
     initialize_database(conn)
     return conn
 

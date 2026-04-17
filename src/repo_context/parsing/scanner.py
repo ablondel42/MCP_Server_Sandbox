@@ -62,7 +62,7 @@ def build_repo_record(repo_root: Path) -> RepoRecord:
         id=f"repo:{folder_name}",
         root_path=str(repo_root),
         name=folder_name,
-        default_language="python",
+        default_language="python",  # type: ignore
         created_at=now,
         last_indexed_at=now,
     )
