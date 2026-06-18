@@ -1,18 +1,15 @@
 ## Architecture overview
 
-This system is a local-first repository intelligence engine for safer AI-assisted code planning.
+This system is a local repository helper for safer AI-assisted code planning.
 
 The architecture is intentionally simple:
 
 - the codebase is scanned and indexed locally
 - structural and reference data are stored in a local SQLite database
 - Python services read that database and compute context or risk
-- an MCP server exposes those services as deterministic tools
-- an AI agent calls those MCP tools before proposing or making changes
+- an MCP server exposes those services
+- an AI agent calls the tools before proposing or making changes
 - a human approves the plan before implementation starts
-
-The MCP layer is not the database and not the reasoning brain.
-It is the tool access layer sitting on top of the local graph.
 
 ---
 
